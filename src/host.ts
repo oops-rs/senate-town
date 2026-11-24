@@ -18,15 +18,8 @@ import type { Frame, ObserveState } from "./observe.ts";
 export const HOST_VERSION = 1;
 export type { Status };
 
-/**
- * The environment, as published, plus two optional fields the macOS shell
- * sends (agreed with observe for Scene Host v1; left out when a shell has
- * no reliable signal): the window is in front; on battery or Low Power Mode.
- */
-export interface Environment extends HostEnvironment {
-  focused?: boolean;
-  power?: "ac" | "battery" | "low_power";
-}
+/** The environment, as published (with the optional `focused` and `power`). */
+export type Environment = HostEnvironment;
 
 /** What the scene does with what the shell sends. */
 export interface Scene {
