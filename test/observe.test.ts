@@ -40,8 +40,9 @@ describe("observe → town", () => {
   it("patches rebuild the same state as a fresh snapshot", () => {
     const a = toObserve(script.quiet), b = toObserve(script.grown());
     const patched = applyPatch(a, diffPatch(a, b));
-    expect(toTown(patched)).toEqual(toTown(b));
-    expect(toTown(applyPatch(b, diffPatch(b, a)))).toEqual(toTown(a));
+    const now = Date.parse("2026-11-25T10:00:00Z"); // elders' ages are counted from now: one clock for both
+    expect(toTown(patched, now)).toEqual(toTown(b, now));
+    expect(toTown(applyPatch(b, diffPatch(b, a)), now)).toEqual(toTown(a, now));
   });
 
   it("tolerates unknown kinds and enum values", () => {

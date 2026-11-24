@@ -11,10 +11,14 @@ import Phaser from "phaser";
 import {
   archive, bay, bayPlaces, bench, boards, capsule, character, cottage, daylight, gate, glow, hall, house as houseArt, HOUSE_TOP, INK,
   landmark, memoryHall, monument, PALETTE, person, plant, RUNTIME, sheet, signal, skyline, speakerHouse, sprite, STYLES,
-  tool as toolArt, TOOLS, townGate, townHall, train, tree, WASH, type Daylight, type Style,
+  tool as toolArt, TOOLS, townGate, townHall, train, tree, WASH, lamp, sails, weatherArt, image, retexture, artOf, where, type Daylight, type Style,
 } from "./art.ts";
 import { COLOURS, generateHouse, generateLook, houses, houseSize, readHouse, readLook, type HouseSpec, type Look } from "./gen.ts";
 import { Room } from "./room.ts";
+import { Life, type Places } from "./life.ts";
+import { Grid } from "./nav.ts";
+import { Person } from "./people.ts";
+import { lightAt, seasonOf, streetLife, weatherOf, windOf, type Season, type Weather } from "./world.ts";
 import { Director, type Action } from "./director.ts";
 import { along, bounds, CIVIC_SCALE, HALL_R, WEDGE, plan, port, signalAt, tube, WORKSHOP, type Plan, type Pt, type Slot } from "./hub.ts";
 import {
@@ -62,7 +66,6 @@ interface Shop {
   bayY: number;
 }
 
-interface Civilian { img: Phaser.GameObjects.Image; look: Look; shirt: number; angle: number; busy: boolean }
 
 const CIVILIAN_SHIRTS = [0x9aa7b8, 0xc4b59a, 0x8fb3a6, 0xb79fae, 0xa9b78f, 0xc9a98f];
 
@@ -75,6 +78,9 @@ export class Works extends Phaser.Scene {
   dark = false;
   /** Fixed time of day (snapshots); else the clock. */
   fixedTime?: Daylight;
+  /** Fixed weather and season (snapshots, demos); else the date's. */
+  fixedWeather?: Weather;
+  fixedSeason?: Season;
   /** The clock the time of day follows (the shell's time zone). */
   clock: () => Date = () => new Date();
 
@@ -104,7 +110,35 @@ export class Works extends Phaser.Scene {
   private pending?: { state: TownState; events: TownEvent[] };
   private time0 = Date.now();
   private specs = new Map<string, HouseSpec>();
-  private civilians: Civilian[] = [];
+  /** The townspeople, the cat, the birds. */
+  private life?: Life;
+  /** Where people can walk. */
+  private grid?: Grid;
+  private solids: { x: number; y: number; w: number; h: number }[] = [];
+  private capsules = new Set<Phaser.GameObjects.Image>();
+  private elderPeople = new Map<string, { p: Person; age: number; leg: number; next: number }>();
+  /** Idle senators out for a walk, by id (their bay is empty meanwhile). */
+  private outside = new Map<string, { p: Person; shop: string }>();
+  private strollNext = new Map<string, number>();
+  /** People with something to follow them (a worker's tool). */
+  private followers: { p: Person; held: Phaser.GameObjects.Image; dx: number; dy: number }[] = [];
+  private jobs: Person[] = [];
+  private trees: Phaser.GameObjects.Image[] = [];
+  private swayers: Phaser.GameObjects.Image[] = [];
+  private spinners: { img: Phaser.GameObjects.Image; speed: number }[] = [];
+  private smoke: { at: Pt; shop: string; next: number }[] = [];
+  private puffs: Phaser.GameObjects.Image[] = [];
+  private lamps: Phaser.GameObjects.Image[] = [];
+  private rain?: Phaser.GameObjects.Particles.ParticleEmitter;
+  private rainZone?: Phaser.Geom.Rectangle;
+  private fog?: Phaser.GameObjects.Rectangle;
+  private clouds: Phaser.GameObjects.Image[] = [];
+  private weather: Weather = "clear";
+  private season: Season = "summer";
+  private wind = 0.2;
+  private traffic = 0;
+  private lastTick = 0;
+  private trainNext = 0;
   private constructing = 0;
   private room?: Room;
   private roomName?: string;
@@ -127,7 +161,7 @@ export class Works extends Phaser.Scene {
     const tiles = map.addTilesetImage("ground", "ground")!;
     map.createLayer("ground", tiles, -this.hubOffset.x, -this.hubOffset.y)!.setDepth(-30_000);
     this.treesFromMap = (map.getObjectLayer("trees")?.objects ?? []).map((o) => ({ x: (o.x ?? 0) - this.hubOffset.x, y: (o.y ?? 0) - this.hubOffset.y }));
-    for (const make of [hall, archive, townHall, memoryHall, signal, gate, tree, bench, sheet, skyline, townGate, train, glow]) make(this);
+    for (const make of [hall, archive, townHall, memoryHall, signal, gate, bench, sheet, skyline, townGate, train, glow, lamp, weatherArt]) make(this);
 
     this.tubes = this.add.graphics().setDepth(-15_000);
     this.lit = this.add.graphics().setDepth(-14_999).setBlendMode(Phaser.BlendModes.ADD);
@@ -146,6 +180,7 @@ export class Works extends Phaser.Scene {
       this.dragging ||= Math.hypot(p.x - p.downX, p.y - p.downY) > 4;
       cam.scrollX -= dx / cam.zoom;
       cam.scrollY -= dy / cam.zoom;
+      this.cullAt = 0;
       this.moved = true;
       this.hooks.hover(undefined, 0, 0);
     });
@@ -153,11 +188,13 @@ export class Works extends Phaser.Scene {
       this.touch();
       const e = p.event as WheelEvent;
       if (e.ctrlKey || e.metaKey) this.zoomAt(Math.exp(-dy * 0.01), p.x, p.y);
-      else { cam.scrollX += dx / cam.zoom; cam.scrollY += dy / cam.zoom; }
+      else { cam.scrollX += dx / cam.zoom; cam.scrollY += dy / cam.zoom; this.cullAt = 0; }
       this.moved = true;
       this.hooks.hover(undefined, 0, 0);
     });
     this.time.addEvent({ delay: 60_000, loop: true, callback: () => this.applyDaylight() });
+    // Under Reduce Motion the loop sleeps when still; wake it now and then so the townspeople can move on (by fading).
+    if (this.reduceMotion) window.setInterval(() => this.touch(400), 9_000);
     this.input.keyboard?.on("keydown-ENTER", () => { if (this.hovered) this.enter(this.hovered); });
     if (!this.scene.get("room")) this.scene.add("room", Room, false);
     if (this.pending) {
@@ -167,14 +204,169 @@ export class Works extends Phaser.Scene {
     }
   }
 
-  override update() {
-    const roomBusy = this.room?.sys.isActive() && this.room.tweens.getTweens().length > 0;
-    if (this.busy === 0 && !roomBusy && !this.dragging && performance.now() > this.awakeUntil && this.tweens.getTweens().length === 0) {
-      this.game.loop.sleep();
+  private ticks: number[] = [];
+  override update(_time: number, delta: number) {
+    this.ticks.push(performance.now());
+    if (this.ticks.length > 120) this.ticks.shift();
+    const now = performance.now();
+    if (this.reduceMotion) {
+      // No walking: people fade from place to place (the routines still choose where).
+      if (this.life && !this.roomName) this.life.update(Math.min(0.1, delta / 1000), now, { x: 0, y: 0, w: 0, h: 0 });
+      const roomBusy = this.room?.sys.isActive() && this.room.tweens.getTweens().length > 0;
+      if (this.busy === 0 && !roomBusy && !this.dragging && now > this.awakeUntil && this.tweens.getTweens().length === 0) this.game.loop.sleep();
+      return;
+    }
+    if (this.roomName) return; // inside a house: the town waits
+    const dt = Math.min(0.1, delta / 1000);
+    const view = this.cameras.main.worldView;
+    const on = (x: number, y: number, m = 60) => x > view.x - m && x < view.right + m && y > view.y - m && y < view.bottom + m;
+    if (this.life) {
+      // Fewer people out at night; more when the town is busy; never more than the view can hold.
+      const working = this.state.committees.reduce((n, c) => n + c.senators.filter((x) => x.mood === "working").length, 0);
+      const hour = this.fixedTime ? { dawn: 7, day: 13, dusk: 19, night: 2 }[this.fixedTime] : undefined;
+      const when = hour === undefined ? this.clock() : new Date(2026, 0, 1, hour);
+      this.life.life = Math.min(1, streetLife(when, this.dark && hour === undefined) * (0.7 + Math.min(0.3, working * 0.03)));
+      this.life.cap = Math.max(4, Math.min(26, Math.round((view.width * view.height) / 60_000)));
+      this.life.update(dt, now, { x: view.x, y: view.y, w: view.width, h: view.height });
+    }
+    this.strollElders(now);
+    for (const e of this.elderPeople.values()) e.p.update(dt, now, on(e.p.x, e.p.y));
+    for (const j of this.jobs) j.update(dt, now, on(j.x, j.y));
+    for (const f of this.followers) {
+      f.p.update(dt, now, on(f.p.x, f.p.y));
+      f.held.setPosition(f.p.x + (f.p.sprite.flipX ? -f.dx : f.dx), f.p.y + f.dy).setDepth(f.p.y + 1);
+    }
+    for (const o of this.outside.values()) o.p.update(dt, now, on(o.p.x, o.p.y));
+    if (now - this.lastTick > 1000) { this.lastTick = now; this.ambleSenators(now); }
+    this.ambient(dt, now, on);
+    this.cull(now);
+  }
+
+  /** Not on screen (hidden, occluded, minimised, display asleep): nothing runs and nothing wakes it. */
+  paused = false;
+  /** Calm: half the townspeople, no weather (a setting the person keeps). */
+  calm = false;
+
+  setCalm(calm: boolean) {
+    if (calm === this.calm) return;
+    this.calm = calm;
+    if (this.shops.size) this.build([]);
+  }
+
+  private cullAt = 0;
+
+  /** Up close, what is out of view isn't drawn at all (without touching anyone's visibility). */
+  private cull(now: number) {
+    if (now < this.cullAt) return;
+    this.cullAt = now + 400;
+    const cam = this.cameras.main, v = cam.worldView, m = 220;
+    const bit = cam.id;
+    for (const o of this.children.list) {
+      const g = o as Phaser.GameObjects.GameObject & { scrollFactorX?: number; getBounds?: () => Phaser.Geom.Rectangle; x?: number; y?: number };
+      if (g.scrollFactorX === 0 || o === this.baked) continue;
+      let inside = true;
+      if (o instanceof Phaser.GameObjects.Image || o instanceof Phaser.GameObjects.Container) {
+        const b = o.getBounds();
+        inside = b.right > v.x - m && b.x < v.right + m && b.bottom > v.y - m && b.y < v.bottom + m;
+      }
+      o.cameraFilter = inside ? o.cameraFilter & ~bit : o.cameraFilter | bit;
     }
   }
 
+  /** Idle senators now and then step out for a short walk round their house, one per house. */
+  private ambleSenators(now: number) {
+    if (this.outside.size >= 4) return;
+    for (const shop of this.shops.values()) {
+      if ([...this.outside.values()].some((o) => o.shop === shop.name)) continue;
+      const c = this.state.committees.find((k) => k.name === shop.name);
+      for (const s of c?.senators ?? []) {
+        if (s.mood !== "idle") continue;
+        const due = this.strollNext.get(s.id) ?? now + 20_000 + Number(hash(s.id) % 60_000n);
+        this.strollNext.set(s.id, due);
+        if (now < due) continue;
+        this.strollNext.set(s.id, now + 90_000 + Number(hash(`${s.id}${Math.round(now)}`) % 90_000n));
+        const at = shop.slot.at, { w, h } = shop.size;
+        const door = { x: at.x + 20, y: at.y + h / 2 + 8 };
+        const p = new Person(this, door, readLook(s.card, generateLook(s.id)), RUNTIME[s.runtime], { glyph: s.runtime, chair: s.chair, gait: "stroll" });
+        this.hitbox(p.sprite, () => ({ kind: "senator", senator: senatorsOf(this.state).get(s.id) ?? s, committee: shop.name }));
+        this.outside.set(s.id, { p, shop: shop.name });
+        this.refresh();
+        // Round the block: the garden, the side of the house, a stretch, and back in.
+        const loop = [{ x: at.x - w / 2 - 30, y: at.y + h / 2 + 26 }, { x: at.x + w / 2 + 30, y: at.y + h / 2 + 30 }]
+          .map((q) => this.grid?.nearestWalkable(q) ?? q);
+        const path = [door, ...loop, door].flatMap((q, i, all) => (i ? this.grid?.path(all[i - 1]!, q)?.slice(1) ?? [q] : [q]));
+        p.walk(path, () => this.cameIn(s.id));
+        return;
+      }
+    }
+  }
+
+  /** Work arrived: hurry back in. */
+  private callBack(id: string) {
+    const o = this.outside.get(id);
+    const shop = o && this.shops.get(o.shop);
+    if (!o || !shop || o.p.gait === "hurry") return;
+    const door = { x: shop.slot.at.x + 20, y: shop.slot.at.y + shop.size.h / 2 + 8 };
+    o.p.walk(this.grid?.path({ x: o.p.x, y: o.p.y }, door) ?? [door], () => this.cameIn(id), "hurry");
+  }
+
+  private cameIn(id: string) {
+    const o = this.outside.get(id);
+    if (!o) return;
+    this.outside.delete(id);
+    o.p.destroy();
+    this.refresh();
+  }
+
+  /** The small life of the place: trees in the wind, the windmill, the wheel, smoke, clouds, the train, blinking signals. */
+  private ambient(dt: number, now: number, on: (x: number, y: number, m?: number) => boolean) {
+    const t = now / 1000;
+    for (const tr of this.trees) if (on(tr.x, tr.y)) tr.setAngle(Math.sin(t * (0.9 + this.wind) + tr.x * 0.013) * (0.6 + this.wind * 3.2));
+    for (const f of this.swayers) f.setScale(0.5 * CIVIC_SCALE * (0.86 + 0.14 * Math.sin(t * (2 + this.wind * 4))), 0.5 * CIVIC_SCALE);
+    for (const sp of this.spinners) sp.img.rotation += sp.speed * (0.3 + this.wind) * dt;
+    this.traffic = Math.max(0, this.traffic - dt * 0.25);
+    if (this.wheel) this.wheel.rotation += (0.12 + this.traffic * 0.45) * dt;
+    // Smoke from the chimneys of houses where work is happening (more work, more smoke).
+    for (const sm of this.smoke) {
+      if (now < sm.next || !on(sm.at.x, sm.at.y, 120) || this.puffs.length > 60) continue;
+      const working = this.state.committees.find((c) => c.name === sm.shop)?.senators.filter((s) => s.mood === "working").length ?? 0;
+      if (!working) { sm.next = now + 2000; continue; }
+      sm.next = now + 1400 / Math.min(3, working);
+      const puff = image(this, sm.at.x, sm.at.y, "puff").setScale(0.35).setAlpha(0.55).setDepth(8_000);
+      puff.setData("v", 14 + Math.random() * 6).setData("age", 0);
+      this.puffs.push(puff);
+    }
+    for (const puff of this.puffs) {
+      const age = (puff.getData("age") as number) + dt;
+      puff.setData("age", age);
+      puff.y -= (puff.getData("v") as number) * dt;
+      puff.x += this.wind * 10 * dt;
+      puff.setScale(0.35 + age * 0.22).setAlpha(Math.max(0, 0.55 - age * 0.16));
+    }
+    const old = this.puffs.filter((p) => (p.getData("age") as number) > 3.4);
+    for (const p of old) p.destroy();
+    if (old.length) this.puffs = this.puffs.filter((p) => !old.includes(p));
+    // Rain falls over what is in view (a thin band above it).
+    if (this.rainZone) { const v = this.cameras.main.worldView; this.rainZone.setTo(v.x - 100, v.y - 300, v.width + 200, v.height * 0.6 + 300); }
+    // Cloud shadows drift with the wind.
+    const b = bounds(this.plan);
+    for (const k of this.clouds) {
+      k.x += (8 + this.wind * 22) * dt;
+      if (k.x > b.x + b.w + 400) k.x = b.x - 400;
+    }
+    // The train keeps a timetable: in, a pause at the station, out again.
+    const train = this.dynamic.find((o) => o.name === "train") as Phaser.GameObjects.Image | undefined;
+    if (train && now > this.trainNext) {
+      this.trainNext = now + 70_000;
+      this.tweens.chain({ tweens: [{ targets: train, y: 420, duration: 6000, ease: "Sine.InOut" }, { targets: train, y: 120, duration: 6000, delay: 5000, ease: "Sine.InOut" }],
+        onUpdate: () => train.setDepth(train.y) } as unknown as Phaser.Types.Tweens.TweenChainBuilderConfig);
+    }
+    // A held delivery's red signal blinks.
+    for (const shop of this.shops.values()) if (shop.held) shop.lamp.setAlpha(0.65 + 0.35 * Math.sin(t * 5)); else if (shop.lamp.alpha !== 1) shop.lamp.setAlpha(1);
+  }
+
   touch(hold = 500) {
+    if (this.paused) return;
     this.awakeUntil = Math.max(this.awakeUntil, performance.now() + hold);
     if (!this.game.loop.running) this.game.loop.wake();
   }
@@ -243,9 +435,11 @@ export class Works extends Phaser.Scene {
   }
 
   private placeWash() {
+    this.cullAt = 0; // the view moved: cull again now
     const cam = this.cameras.main;
     const w = cam.width / cam.zoom, h = cam.height / cam.zoom;
     this.wash?.setSize(w + 4, h + 4).setPosition((cam.width - w) / 2 - 2, (cam.height - h) / 2 - 2);
+    this.fog?.setSize(w + 4, h + 4).setPosition((cam.width - w) / 2 - 2, (cam.height - h) / 2 - 2);
   }
 
   private onResize() {
@@ -261,10 +455,14 @@ export class Works extends Phaser.Scene {
 
   /** The light over the town now: the clock's, or night when dark. */
   private applyDaylight() {
-    const when = this.fixedTime ?? daylight(this.clock(), this.dark);
-    const w = WASH[when];
-    this.wash.setFillStyle(w.color, 1).setAlpha(w.alpha).setVisible(w.alpha > 0);
+    const fixed = this.fixedTime;
+    const w = fixed ? { ...WASH[fixed], lamps: WASH[fixed].glow } : (() => { const l = lightAt(this.clock(), this.dark); return { ...l, glow: l.lamps }; })();
+    // Rain and fog grey the light a little.
+    const grey = this.weather === "rain" ? 0.12 : this.weather === "fog" || this.weather === "cloudy" ? 0.06 : 0;
+    const alpha = Math.min(0.75, w.alpha + grey);
+    this.wash.setFillStyle(w.alpha > 0 ? w.color : 0x8a96a8, 1).setAlpha(alpha).setVisible(alpha > 0);
     for (const g of this.glows) g.setVisible(w.glow);
+    for (const l of this.lamps) if (l.texture.key === "glow") l.setVisible(w.glow);
     this.lit.setVisible(w.glow);
     this.touch(50);
   }
@@ -306,7 +504,24 @@ export class Works extends Phaser.Scene {
     this.gates.clear();
     this.heldCapsules.clear();
     this.director.reset();
-    this.civilians = [];
+    this.life?.destroy();
+    this.life = undefined;
+    for (const e of this.elderPeople.values()) e.p.destroy();
+    this.elderPeople.clear();
+    for (const o of this.outside.values()) o.p.destroy();
+    this.outside.clear();
+    for (const f of this.followers) { f.p.destroy(); f.held.destroy(); }
+    this.followers = [];
+    for (const j of this.jobs) j.destroy();
+    this.jobs = [];
+    this.trees = [];
+    this.swayers = [];
+    this.spinners = [];
+    this.smoke = [];
+    for (const l of this.lamps) l.destroy();
+    this.lamps = [];
+    this.solids = [];
+    this.capsules.clear();
     this.plan = plan(this.state.committees.map((c) => c.name), kept);
     this.specs = houses(this.state.committees.map((c) => c.name), new Map(this.state.committees.map((k) => [k.name, k.card])));
     const p = this.plan, c = p.civic;
@@ -318,7 +533,14 @@ export class Works extends Phaser.Scene {
       Math.hypot(t.x - c.monuments.x, t.y - c.monuments.y) > 330 && Math.abs(t.x - c.rail) > 120 &&
       Math.abs(t.x - c.gate.x) > 90 && Math.abs(t.y - (c.parent.y + 90)) > 140 &&
       c.children.every((k) => Math.hypot(t.x - k.x, t.y - k.y) > 200);
-    for (const t of this.treesFromMap.filter(keep)) this.add2(sprite(this, t.x, t.y, "tree").setDepth(t.y));
+    this.season = this.fixedSeason ?? seasonOf(this.clock());
+    this.weather = this.calm ? "clear" : this.fixedWeather ?? weatherOf(this.clock());
+    this.wind = windOf(this.weather);
+    const treeKey = tree(this, this.season);
+    for (const t of this.treesFromMap.filter(keep)) {
+      const img = this.add2(sprite(this, t.x, t.y + 24, treeKey).setOrigin(0.5, 52 / 56).setDepth(t.y));
+      this.trees.push(img);
+    }
 
     this.drawTubes();
     // The sorting hall, its wheel; the archive with a reel row per committee; the town hall and its docket.
@@ -334,7 +556,8 @@ export class Works extends Phaser.Scene {
     speakerHouse(this);
     this.add2(this.hitbox(civic(c.townHall.x, c.townHall.y, "speaker"),
       () => ({ kind: "townhall", docket: this.state.hall?.docket ?? 0, secretary: this.state.hall?.secretary })));
-    this.add2(sprite(this, c.townHall.x + 1, c.townHall.y - 105 * CIVIC_SCALE, "speaker-flag").setOrigin(0, 1).setScale(0.5 * CIVIC_SCALE).setDepth(c.townHall.y));
+    const flag = this.add2(sprite(this, c.townHall.x + 1, c.townHall.y - 105 * CIVIC_SCALE, "speaker-flag").setOrigin(0, 1).setScale(0.5 * CIVIC_SCALE).setDepth(c.townHall.y));
+    this.swayers.push(flag);
     this.docket = this.add.container(c.townHall.x, c.townHall.y).setDepth(c.townHall.y + 2).setScale(CIVIC_SCALE);
     this.add2(this.docket);
     this.glowAt(c.townHall.x, c.townHall.y + 20, 2.4);
@@ -348,6 +571,7 @@ export class Works extends Phaser.Scene {
     // The empty lots: paved pads where a new committee will build.
     const pads = this.add.graphics().setDepth(-12_500);
     this.add2(pads);
+    this.padsG = pads;
     for (const e of p.empty) {
       pads.fillStyle(PALETTE.pavingEdge, 0.55).fillRoundedRect(e.at.x - 90, e.at.y - 50, 180, 110, 16);
     }
@@ -366,21 +590,46 @@ export class Works extends Phaser.Scene {
 
   // MARK: Townspeople
 
-  /** Civilians on the ring road: ambient life, recruited as workers and builders. */
+  /** The townspeople, the cat and the birds, on a walkable grid with the buildings blocked out. */
   private populate() {
-    const n = Math.max(4, Math.min(12, 4 + Math.round(this.state.committees.length / 3)));
-    const rnd = seeded("townspeople");
+    const p = this.plan, c = p.civic;
+    const b = bounds(p);
+    const grid = new Grid({ x: b.x - 200, y: b.y - 100, w: b.w + 400, h: b.h + 300 }, 20);
+    for (const r of this.solids) grid.block(r);
+    grid.blockCircle({ x: 0, y: 0 }, HALL_R + 6);
+    const civicBox = (at: Pt, w: number, h: number) => grid.block({ x: at.x - w / 2, y: at.y - h / 2, w, h });
+    civicBox(c.archive, 150, 130);
+    civicBox(c.townHall, 210, 150);
+    civicBox(c.memory, 150, 100);
+    // The river, and the rail's bed.
+    grid.block({ x: b.x - 400, y: c.parent.y + 40, w: b.w + 800, h: 40 });
+    grid.block({ x: c.rail - 24, y: b.y - 200, w: 48, h: b.h + 600 });
+    this.grid = grid;
     const r0 = this.roadRadius();
-    for (let i = 0; i < n; i++) {
-      const look = generateLook(`civilian-${i}`);
-      const shirt = CIVILIAN_SHIRTS[i % CIVILIAN_SHIRTS.length]!;
-      // On the ring road, but never in the civic wedge north of the hall.
-      const angle = -Math.PI / 2 + WEDGE + 0.15 + rnd() * (2 * Math.PI - 2 * WEDGE - 0.3);
-      const img = sprite(this, Math.cos(angle) * r0, Math.sin(angle) * r0 - 14, character(this, look, shirt)).setDepth(Math.sin(angle) * r0);
-      this.add2(this.hitbox(img, () => ({ kind: "civilian" })));
-      this.civilians.push({ img, look, shirt, angle, busy: false });
+    const ring = Array.from({ length: 16 }, (_, i) => -Math.PI / 2 + WEDGE + 0.15 + (i / 15) * (2 * Math.PI - 2 * WEDGE - 0.3))
+      .map((a) => ({ x: Math.cos(a) * r0, y: Math.sin(a) * r0 }));
+    const benches = c.promenade.filter((_, i) => i % 2 === 0).map((q) => ({ x: q.x + 60, y: q.y + 14 }));
+    const gardens = [...this.shops.values()].flatMap((s) => [{ x: s.slot.at.x - s.size.w / 2 - 22, y: s.slot.at.y + s.size.h / 2 + 18 }, { x: s.slot.at.x + s.size.w / 2 + 22, y: s.slot.at.y + s.size.h / 2 + 18 }]);
+    const places: Places = {
+      benches,
+      spots: [...ring, ...c.promenade, { x: c.monuments.x, y: c.monuments.y - 150 }, { x: c.gate.x + 60, y: c.gate.y + 50 }],
+      homes: c.children.map((k) => ({ x: k.x, y: k.y - 50 })),
+      shelters: [...this.shops.values()].map((s) => ({ x: s.slot.at.x, y: s.slot.at.y + s.size.h / 2 + 16 })),
+      gardens,
+    };
+    this.life = new Life(this, grid, places, () => [...this.capsules].map((k) => ({ x: k.x, y: k.y })), this.reduceMotion);
+    this.life.weather = this.weather;
+    const full = Math.max(8, Math.min(26, 8 + Math.round(this.state.committees.length * 0.6)));
+    const n = this.calm ? Math.ceil(full / 2) : full;
+    this.life.populate(n, (img) => this.hitbox(img, () => ({ kind: "civilian" })));
+    // Street lamps round the ring road, lit from dusk.
+    for (const [i, q] of ring.entries()) {
+      if (i % 2) continue;
+      const l = sprite(this, q.x * 1.06, q.y * 1.06 - 10, "lamp").setDepth(q.y * 1.06);
+      this.lamps.push(l);
+      this.lamps.push(this.add.image(q.x * 1.06, q.y * 1.06 - 28, "glow").setBlendMode(Phaser.BlendModes.ADD).setScale(0.55).setAlpha(0.8).setDepth(9_002));
     }
-    this.strollCivilians();
+    this.setupWeather();
   }
 
   private roadRadius() {
@@ -388,47 +637,34 @@ export class Works extends Phaser.Scene {
     return Math.min(...rings, 560) - WORKSHOP.h / 2 - 34;
   }
 
-  private civStroll?: Phaser.Time.TimerEvent;
-
-  /** Every half minute the townspeople take a few steps round the ring road, together (so the town is still in between). */
-  private strollCivilians() {
-    this.civStroll?.remove();
-    if (this.reduceMotion) return;
-    const rnd = seeded(`civ-${this.time0}`);
-    this.civStroll = this.time.addEvent({ delay: 30_000, loop: true, callback: () => {
-      const r0 = this.roadRadius();
-      this.touch();
-      for (const c of this.civilians) {
-        if (c.busy) continue;
-        const lo = -Math.PI / 2 + WEDGE + 0.15, hi = 1.5 * Math.PI - WEDGE - 0.15;
-        const from = c.angle, to = Math.min(hi, Math.max(lo, from + (rnd() < 0.5 ? -1 : 1) * (0.12 + rnd() * 0.18)));
-        const st = { a: from };
-        this.busy++;
-        this.tweens.add({ targets: st, a: to, duration: 3200, ease: "Sine.InOut",
-          onUpdate: () => { c.angle = st.a; c.img.setPosition(Math.cos(st.a) * r0, Math.sin(st.a) * r0 - 14).setDepth(Math.sin(st.a) * r0); },
-          onComplete: () => { this.busy--; } });
-      }
-    } });
-  }
-
-  /** A free townsperson nearest a point, taken off the street for a job. */
-  private recruit(at: Pt): Civilian | undefined {
-    let best: Civilian | undefined, d = Infinity;
-    for (const c of this.civilians) {
-      if (c.busy) continue;
-      const k = Math.hypot(c.img.x - at.x, c.img.y - at.y);
-      if (k < d) { d = k; best = c; }
+  /** The day's weather: rain or snow, fog in the morning, cloud shadows drifting over. */
+  private setupWeather() {
+    this.rain?.destroy();
+    this.rain = undefined;
+    this.fog?.destroy();
+    this.fog = undefined;
+    for (const k of this.clouds) k.destroy();
+    this.clouds = [];
+    this.rainZone = undefined;
+    if (this.reduceMotion || this.calm) return;
+    const cam = this.cameras.main;
+    if (this.weather === "rain") {
+      const snow = this.season === "winter";
+      this.rainZone = new Phaser.Geom.Rectangle(0, 0, 10, 10);
+      const [page, frame] = where(snow ? "flake" : "drop");
+      this.rain = this.add.particles(0, 0, page, {
+        frame,
+        emitZone: { type: "random", source: this.rainZone } as unknown as Phaser.Types.GameObjects.Particles.EmitZoneData, lifespan: snow ? 9000 : 2600,
+        speedY: snow ? { min: 40, max: 70 } : { min: 900, max: 1100 }, speedX: snow ? { min: -20, max: 20 } : -120 * this.wind,
+        scale: snow ? { min: 0.4, max: 0.8 } : 0.5, alpha: snow ? 0.9 : 0.55, frequency: snow ? 40 : 14, quantity: 1,
+      }).setDepth(9_500);
     }
-    if (best) best.busy = true;
-    return best;
-  }
-
-  /** Back to strolling. */
-  private dismiss(c: Civilian, done: () => void) {
-    const r0 = this.roadRadius();
-    c.img.setTexture(character(this, c.look, c.shirt));
-    this.tweens.add({ targets: c.img, x: Math.cos(c.angle) * r0, y: Math.sin(c.angle) * r0 - 14, duration: this.reduceMotion ? 1 : 1400,
-      onUpdate: () => c.img.setDepth(c.img.y), onComplete: () => { c.busy = false; done(); } });
+    if (this.weather === "fog") { this.fog = this.add.rectangle(0, 0, cam.width, cam.height, 0xffffff, 0.28).setOrigin(0).setScrollFactor(0).setDepth(9_400); this.placeWash(); }
+    const n = this.weather === "cloudy" || this.weather === "rain" ? 6 : this.weather === "clear" ? 2 : 4;
+    const b = bounds(this.plan), rnd = seeded("clouds");
+    for (let i = 0; i < n; i++) {
+      this.clouds.push(image(this, b.x + rnd() * b.w, b.y + rnd() * b.h, "cloud").setScale(2 + rnd() * 2).setAlpha(this.weather === "clear" ? 0.07 : 0.12).setDepth(8_900));
+    }
   }
 
   // MARK: Construction
@@ -450,12 +686,19 @@ export class Works extends Phaser.Scene {
     const rising = this.add2(sprite(this, at.x, at.y, houseArt(this, shop.spec).key));
     const H = rising.height, Wt = rising.width;
     rising.setOrigin(0.5, (HOUSE_TOP + h / 2) / (h + HOUSE_TOP + 10)).setDepth(at.y + 1).setCrop(0, H, Wt, 0);
-    const builders = [this.recruit(at), this.recruit(at)].filter((b): b is Civilian => !!b);
-    const spots = [{ x: at.x - w / 2 - 18, y: at.y + h / 2 + 6 }, { x: at.x + w / 2 + 18, y: at.y + h / 2 + 6 }];
-    builders.forEach((b, i) => {
-      b.img.setTexture(character(this, b.look, b.shirt, { pose: "work", hardhat: true }));
-      this.tweens.add({ targets: b.img, x: spots[i]!.x, y: spots[i]!.y, duration: 1500, onUpdate: () => b.img.setDepth(b.img.y + 400) });
-      this.tweens.add({ targets: b.img, angle: { from: -6, to: 6 }, duration: 200, yoyo: true, repeat: 14, delay: 1500 });
+    // Two townspeople put on hard hats and walk over.
+    const spots = [{ x: at.x - w / 2 - 22, y: at.y + h / 2 + 14 }, { x: at.x + w / 2 + 22, y: at.y + h / 2 + 14 }];
+    const builders = [this.life?.recruit(at), this.life?.recruit(at)].filter((b): b is Person => !!b).map((civ, i) => {
+      civ.sprite.setVisible(false);
+      const b = new Person(this, { x: civ.x, y: civ.y }, civ.look, civ.shirt, { hardhat: true, gait: "hurry" });
+      this.jobs.push(b);
+      const spot = this.grid?.nearestWalkable(spots[i]!) ?? spots[i]!;
+      b.walk(this.grid?.path({ x: b.x, y: b.y }, spot) ?? [spot], () => {
+        b.face({ x: at.x, y: b.y });
+        // Hammering: a little bob in place while the house goes up.
+        this.tweens.add({ targets: b.sprite, y: b.y - 2, duration: 180, yoyo: true, repeat: 12 });
+      });
+      return { civ, b };
     });
     const t = { k: 0 };
     this.time.delayedCall(1400, () => {
@@ -471,7 +714,17 @@ export class Works extends Phaser.Scene {
           this.tweens.add({ targets: rising, alpha: 0, duration: 500, delay: 300, onComplete: () => rising.destroy() });
           let left = builders.length;
           if (!left) finish();
-          for (const b of builders) { b.img.setAngle(0); this.dismiss(b, () => { if (--left === 0) finish(); }); }
+          for (const { civ, b } of builders) {
+            const back = () => {
+              civ.sprite.setPosition(b.x, b.y).setVisible(true);
+              this.life?.dismiss(civ);
+              this.jobs = this.jobs.filter((j) => j !== b);
+              b.destroy();
+              if (--left === 0) finish();
+            };
+            const away = this.grid?.nearestWalkable({ x: b.x + (b.x < at.x ? -60 : 60), y: b.y + 40 });
+            if (away) b.walk(this.grid?.path({ x: b.x, y: b.y }, away) ?? [away], back, "walk"); else back();
+          }
         } });
     });
   }
@@ -511,6 +764,7 @@ export class Works extends Phaser.Scene {
   private drawGrounds() {
     const g = this.add.graphics().setDepth(-20_000);
     this.add2(g);
+    this.plazaG = g;
     const p = this.plan, c = p.civic;
     const rings = new Set([...p.slots.values()].map((s) => Math.round(Math.hypot(s.at.x, s.at.y))));
     // The paved plaza within the first ring road.
@@ -522,6 +776,14 @@ export class Works extends Phaser.Scene {
       g.lineStyle(46, PALETTE.pavingEdge, 1).strokeCircle(0, 0, r - WORKSHOP.h / 2 - 34);
       g.lineStyle(40, PALETTE.road, 1).strokeCircle(0, 0, r - WORKSHOP.h / 2 - 34);
     }
+    // Beyond the plaza (not baked: it reaches far out): the promenade, the river, the rail, the gate road.
+    const o = this.add.graphics().setDepth(-19_999);
+    this.add2(o);
+    this.outerGround(o);
+  }
+
+  private outerGround(g: Phaser.GameObjects.Graphics) {
+    const p = this.plan, c = p.civic;
     // The promenade by the memory hall.
     g.lineStyle(36, PALETTE.road, 1).strokePoints(c.promenade.map((q) => new Phaser.Math.Vector2(q.x, q.y)), true, true);
     // The river before the parent Senate.
@@ -557,6 +819,38 @@ export class Works extends Phaser.Scene {
     const [from, to] = this.archiveTube();
     g.lineStyle(22, PALETTE.glassEdge, 1).beginPath().moveTo(from.x, from.y).lineTo(to.x, to.y).strokePath();
     g.lineStyle(16, PALETTE.glass, 1).beginPath().moveTo(from.x, from.y).lineTo(to.x, to.y).strokePath();
+    this.bakeGround();
+  }
+
+  private plazaG?: Phaser.GameObjects.Graphics;
+  private padsG?: Phaser.GameObjects.Graphics;
+  private baked?: Phaser.GameObjects.Image;
+
+  /**
+   * The plaza, its ring roads, the tubes and the empty lots change only when
+   * the state does, but drawn as shapes they would be rebuilt every frame:
+   * so they are drawn once into one texture (again on each refresh) and the
+   * shapes are hidden.
+   */
+  private bakeGround() {
+    const parts = [this.plazaG, this.tubes, this.padsG].filter((g): g is Phaser.GameObjects.Graphics => !!g && g.active);
+    if (!parts.length) return;
+    const R = this.plan.outer + 40;
+    const res = Math.min(1.5, 4096 / (2 * R));
+    const size = Math.ceil(2 * R * res);
+    let tex = this.textures.exists("ground-bake") ? (this.textures.get("ground-bake") as Phaser.Textures.DynamicTexture) : undefined;
+    if (tex && (tex.width !== size || tex.height !== size)) tex.setSize(size, size);
+    tex ??= this.textures.addDynamicTexture("ground-bake", size, size)!;
+    tex.clear();
+    for (const g of parts) {
+      const was = { x: g.x, y: g.y, s: g.scale };
+      g.setVisible(true).setScale(res).setPosition(R * res, R * res);
+      tex.draw([g]);
+      tex.render(); // drawing is deferred until render: render before the shape is put back
+      g.setScale(was.s).setPosition(was.x, was.y).setVisible(false);
+    }
+    if (!this.baked?.active) this.baked = this.add2(this.add.image(0, 0, "ground-bake").setDepth(-20_000));
+    this.baked.setScale(1 / res);
   }
 
   /** From the hall's rim to the archive's door. */
@@ -586,8 +880,19 @@ export class Works extends Phaser.Scene {
     if (spec.garden === "pond") g.fillStyle(PALETTE.water, 1).fillEllipse(w / 2 + 10, h / 2 + 16, 46, 18).lineStyle(2, INK, 1).strokeEllipse(w / 2 + 10, h / 2 + 16, 46, 18);
     root.add(g);
     if (spec.landmark !== "none") root.add(sprite(this, w / 2 + 34, -h / 2 + 10, landmark(this, spec.landmark, COLOURS[spec.trim]!)).setOrigin(0.5, 0.75));
+    if (spec.landmark === "windmill") {
+      const sail = sprite(this, w / 2 + 34, -h / 2 + 10 - 49.5, sails(this));
+      root.add(sail);
+      this.spinners.push({ img: sail, speed: 0.6 });
+    }
+    // Where people can't walk: the house and its garden's front.
+    this.solids.push({ x: slot.at.x - w / 2 - 10, y: slot.at.y - h / 2 - 10, w: w + 20, h: h + 22 });
+    // A chimney: smoke while someone inside works.
+    this.smoke.push({ at: { x: slot.at.x - w / 4, y: slot.at.y - h / 2 - HOUSE_TOP + 14 }, shop: name, next: 0 });
     const body = sprite(this, 0, 0, art.key).setOrigin(0.5, (HOUSE_TOP + h / 2) / (h + HOUSE_TOP + 10));
     root.add(body);
+    // Winter: snow along the roof.
+    if (this.season === "winter") root.add(this.add.rectangle(0, -h / 2 - HOUSE_TOP + 40, w - 24, 8, 0xffffff).setStrokeStyle(1.5, 0xd8e2ee));
     let clickTimer: Phaser.Time.TimerEvent | undefined;
     const target = (): Target => {
       const c = this.state.committees.find((k) => k.name === name);
@@ -706,9 +1011,15 @@ export class Works extends Phaser.Scene {
         b.id = undefined;
         const s = senators[i];
         const on = s?.mood === "working" || s?.mood === "waiting";
-        b.window.setTexture(bay(this, on));
+        retexture(b.window, bay(this, on));
         b.window.removeAllListeners();
         if (!s || s.mood === "stopped") return;
+        // Out for a walk: the bay stays empty until it comes back (at once when work arrives).
+        const out = this.outside.get(s.id);
+        if (out) {
+          if (s.mood !== "idle") this.callBack(s.id);
+          return;
+        }
         const pose = s.mood === "waiting" ? "wave" : s.mood === "working" ? "work" : "stand";
         const look = readLook(s.card, generateLook(s.id));
         const who = sprite(this, b.window.x, b.window.y + 2, character(this, look, RUNTIME[s.runtime], { pose, chair: s.chair, glyph: s.runtime }));
@@ -729,7 +1040,7 @@ export class Works extends Phaser.Scene {
       const sill = this.add.rectangle(0, shop.bayY + 26, shop.size.w - 36, 10, wall).setStrokeStyle(2, INK);
       shop.root.add(sill);
       shop.extras.push(sill);
-      const litBays = shop.bays.filter((b) => b.window.texture.key === "bay-lit");
+      const litBays = shop.bays.filter((b) => artOf(b.window) === "bay-lit");
       for (const b of litBays) {
         shop.extras.push(this.glowAt(shop.slot.at.x + b.window.x, shop.slot.at.y + b.window.y, 0.9)
           .setVisible(WASH[this.fixedTime ?? daylight(this.clock(), this.dark)].glow));
@@ -802,52 +1113,37 @@ export class Works extends Phaser.Scene {
     }
   }
 
+  /** Elders on the promenade, aged by idle time: the youngest still walk (slowly, some with a cane), the oldest sit on a bench. */
   private drawElders() {
-    for (const e of this.elders.values()) e.destroy();
-    this.elders.clear();
     const prom = this.plan.civic.promenade;
-    (this.state.elders ?? []).slice(0, 10).forEach((e, i) => {
+    const want = (this.state.elders ?? []).slice(0, 10);
+    for (const [id, e] of this.elderPeople) if (!want.some((x) => x.id === id)) { e.p.destroy(); this.elderPeople.delete(id); }
+    want.forEach((e, i) => {
+      if (this.elderPeople.has(e.id)) return;
       const age = e.idle > 14 * 86_400 ? 3 : e.idle > 86_400 ? 2 : 1;
-      const hair = [0, 0x8d7b6e, 0xc9c3bc, 0xf4f1ec][age]!;
       const shirt = Phaser.Display.Color.IntegerToColor(RUNTIME[e.runtime]).lighten(18 + age * 6).color;
       const leg = i % prom.length, t = (i * 0.37) % 1;
       const a = prom[leg]!, b = prom[(leg + 1) % prom.length]!;
-      const at = age >= 3 ? { x: prom[(i % 2) * 2]!.x + 60 + (i % 3) * 14, y: prom[(i % 2) * 2]!.y + 2 } : { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+      const at = age >= 3 ? { x: prom[(i % 2) * 2]!.x + 60 + (i % 3) * 14, y: prom[(i % 2) * 2]!.y + 14 } : { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
       const base = generateLook(e.id);
       const look: Look = { ...base, hairColour: 5, hair: age >= 3 && base.hair === "long" ? "bun" : base.hair, hat: age >= 2 ? base.hat : "none" };
-      void hair;
-      const img = sprite(this, at.x, at.y - 18, character(this, look, shirt, { cane: age >= 2, pose: age >= 3 ? "sit" : "stand" })).setDepth(at.y);
-      if (age >= 2) img.setAngle(age === 2 ? 4 : 0);
-      this.add2(this.hitbox(img, () => ({ kind: "elder", elder: e })));
-      img.setData("leg", leg).setData("age", age);
-      this.elders.set(e.id, img);
+      const p = new Person(this, at, look, shirt, { cane: age >= 2, gait: "elder", reduceMotion: this.reduceMotion });
+      if (age >= 3) p.sit();
+      this.hitbox(p.sprite, () => ({ kind: "elder", elder: e }));
+      this.elderPeople.set(e.id, { p, age, leg, next: performance.now() + 8000 + i * 6000 });
     });
-    this.scheduleStroll();
   }
 
-  private strolling?: Phaser.Time.TimerEvent;
-
-  /** Now and then an elder takes a few slow steps along the promenade. */
-  private scheduleStroll() {
-    this.strolling?.remove();
-    if (this.reduceMotion) return;
-    const rnd = seeded(`stroll-${this.time0}`);
-    this.strolling = this.time.addEvent({
-      delay: 40_000, loop: true, callback: () => {
-        const walkers = [...this.elders.values()].filter((e) => (e.getData("age") as number) < 3);
-        const e = walkers[Math.floor(rnd() * walkers.length)];
-        if (!e) return;
-        const prom = this.plan.civic.promenade;
-        const leg = ((e.getData("leg") as number) + 1) % prom.length;
-        const to = prom[leg]!;
-        const age = e.getData("age") as number;
-        e.setData("leg", leg);
-        this.busy++;
-        this.touch();
-        this.tweens.add({ targets: e, x: to.x, y: to.y - 18, duration: Math.hypot(to.x - e.x, to.y - e.y) / (age === 1 ? 60 : 35) * 1000,
-          onUpdate: () => e.setDepth(e.y), onComplete: () => { this.busy--; } });
-      },
-    });
+  /** Now and then an elder walks on to the next corner of the promenade. */
+  private strollElders(now: number) {
+    const prom = this.plan.civic.promenade;
+    for (const e of this.elderPeople.values()) {
+      if (e.age >= 3 || e.p.moving || now < e.next) continue;
+      e.leg = (e.leg + 1) % prom.length;
+      const to = prom[e.leg]!;
+      e.p.walk(this.grid?.path({ x: e.p.x, y: e.p.y }, to) ?? [to], () => { e.next = performance.now() + 15_000 + Math.random() * 25_000; });
+      e.next = Infinity;
+    }
   }
 
   /** Tubes carrying something glow; the rest stay plain (at dusk and night). */
@@ -905,7 +1201,9 @@ export class Works extends Phaser.Scene {
     const cap = sprite(this, 0, 0, capKey).setDepth(5_000);
     cap.setScale(cap.scale * 1.5);
     this.add2(this.hitbox(cap, () => ({ kind: "capsule", from: a.from, to: a.to, thread: a.thread, line: a.line, held: a.held })));
-    const done = () => { cap.destroy(); this.busy--; this.perform(this.director.cameHome(a.from)); };
+    this.capsules.add(cap);
+    this.traffic = Math.min(6, this.traffic + 1);
+    const done = () => { this.capsules.delete(cap); cap.destroy(); this.busy--; this.perform(this.director.cameHome(a.from)); };
     this.busy++;
     if (!a.walk) {
       // Reduce Motion: the capsule shows at the sender, then at the receiver.
@@ -965,12 +1263,12 @@ export class Works extends Phaser.Scene {
       follow(pts, true, 0.2);
       this.tweens.chain({ tweens: legs, onComplete: () => {
         to.held++;
-        to.lamp.setTexture("lamp-red");
+        retexture(to.lamp, "lamp-red");
         this.busy--; // waiting is still: the loop may sleep
         this.heldCapsules.set(a.thread.committee + ":" + a.thread.root, () => {
           this.busy++;
           to.held = Math.max(0, to.held - 1);
-          if (!to.held) to.lamp.setTexture("lamp-green");
+          if (!to.held) retexture(to.lamp, "lamp-green");
           rest();
         });
       } } as unknown as Phaser.Types.Tweens.TweenChainBuilderConfig);
@@ -1034,59 +1332,68 @@ export class Works extends Phaser.Scene {
       onComplete: () => { s.destroy(); this.busy--; } } as unknown as Phaser.Types.Tweens.TweenChainBuilderConfig);
   }
 
-  /** A tool call: a worker comes out of the door, works, and goes back in. */
+  /** A tool call: a worker comes out of the door, walks to the job, does it where you can see, and walks back in. */
   private worker(senator: string, kind: ToolKind, target?: string) {
     const shop = this.shopOf(senator);
     if (!shop) { this.director.workerHome(); return; }
-    const door = { x: shop.slot.at.x + 20, y: shop.slot.at.y + 60 };
-    const out = { x: door.x + (Math.cos(shop.slot.angle) * 50), y: door.y + 26 + Math.sin(shop.slot.angle) * 30 };
-    const body = sprite(this, door.x, door.y, person(this, TOOLS[kind], { hair: 0x6b4f3a })).setDepth(door.y + 40);
-    const held = sprite(this, door.x + 12, door.y - 4, toolArt(this, kind)).setDepth(door.y + 41);
-    const both = [body, held];
-    for (const o of both) this.add2(this.hitbox(o, () => ({ kind: "worker", senator, tool: kind, target })));
+    const door = { x: shop.slot.at.x + 20, y: shop.slot.at.y + shop.size.h / 2 + 8 };
+    const out = { x: door.x + Math.cos(shop.slot.angle) * 56, y: door.y + 26 + Math.max(0, Math.sin(shop.slot.angle)) * 20 };
+    const p = new Person(this, door, generateLook(`worker-${kind}-${senator}`), TOOLS[kind], { gait: "walk", reduceMotion: this.reduceMotion });
+    const held = sprite(this, door.x + 12, door.y - 18, toolArt(this, kind)).setDepth(door.y + 1);
+    const f = { p, held, dx: 10, dy: -18 };
+    this.followers.push(f);
+    for (const o of [p.sprite, held]) this.hitbox(o, () => ({ kind: "worker", senator, tool: kind, target }));
     this.busy++;
-    const finish = () => { for (const o of both) o.destroy(); this.busy--; this.director.workerHome(); };
-    if (this.reduceMotion) {
-      for (const o of both) o.setAlpha(0);
-      this.tweens.chain({ tweens: [{ targets: both, alpha: 1, duration: 200 }, { targets: both, alpha: 0, delay: 1800, duration: 200 }], onComplete: finish } as unknown as Phaser.Types.Tweens.TweenChainBuilderConfig);
-      return;
-    }
-    const moveTo = (p: Pt, ms: number) => ({ targets: both, x: (o: Phaser.GameObjects.Image) => p.x + (o === held ? 12 : 0), y: (o: Phaser.GameObjects.Image) => p.y + (o === held ? -4 : 0), duration: ms });
-    const steps: unknown[] = [moveTo(out, 350)];
-    if (kind === "mcp") {
-      // The courier takes a parcel to the MCP's building: the Senate's is the sorting hall.
-      const rim = along(tube(shop.slot), 0.85);
-      steps.push(moveTo(rim, 1400), { targets: held, alpha: 0, duration: 200 }, moveTo(out, 1400), { targets: held, alpha: 1, duration: 1 });
-    } else if (kind === "web") {
-      // The explorer leaves by the town gate.
-      const gate = this.plan.civic.gate;
-      steps.push(moveTo({ x: out.x, y: gate.y + 40 }, 900), moveTo({ x: gate.x, y: gate.y + 40 }, 1600), { targets: both, alpha: 0, duration: 300 });
-    } else {
+    const finish = () => {
+      this.followers = this.followers.filter((x) => x !== f);
+      p.destroy();
+      held.destroy();
+      this.busy--;
+      this.director.workerHome();
+    };
+    const route = (to: Pt) => this.grid?.path({ x: p.x, y: p.y }, to) ?? [to];
+    const home = () => p.walk(route(door), () => this.tweens.add({ targets: [p.sprite, held], alpha: 0, duration: 200, onComplete: finish }));
+    const job = (): Pt => {
+      if (kind === "mcp") return along(tube(shop.slot), 0.82); // a parcel to the sorting hall
+      if (kind === "web") return { x: this.plan.civic.gate.x + 30, y: this.plan.civic.gate.y + 40 }; // off by the town gate
+      return out;
+    };
+    p.walk(route(job()), () => {
+      p.face({ x: p.x, y: p.y + 10 });
+      if (kind === "web") {
+        // The explorer goes out through the gate, and comes back.
+        this.tweens.chain({ tweens: [{ targets: [p.sprite, held], alpha: 0, duration: 300 }, { targets: [p.sprite, held], alpha: 1, duration: 300, delay: 1800 }],
+          onComplete: home } as unknown as Phaser.Types.Tweens.TweenChainBuilderConfig);
+        return;
+      }
+      if (kind === "mcp") {
+        this.tweens.chain({ tweens: [{ targets: held, alpha: 0, duration: 250 }, { targets: held, alpha: 1, duration: 250, delay: 500 }],
+          onComplete: home } as unknown as Phaser.Types.Tweens.TweenChainBuilderConfig);
+        return;
+      }
       // At work just outside: a hammer swings, a quill writes, a book opens, a lens looks round.
-      const swing = kind === "bash" ? { targets: held, angle: -50, duration: 160, yoyo: true, repeat: 5 }
-        : kind === "grep" ? { targets: held, x: held.x + 18, duration: 300, yoyo: true, repeat: 2 }
-        : { targets: held, y: "-=4", duration: 250, yoyo: true, repeat: 3 };
-      steps.push(swing);
-    }
-    steps.push(moveTo(door, 350), { targets: both, alpha: 0, duration: 150 });
-    this.tweens.chain({ tweens: steps, onComplete: finish } as unknown as Phaser.Types.Tweens.TweenChainBuilderConfig);
+      const swing = kind === "bash" ? { angle: -50, duration: 160, yoyo: true, repeat: 5 }
+        : kind === "grep" ? { dx: 16, duration: 300, yoyo: true, repeat: 2 }
+        : { dy: -22, duration: 250, yoyo: true, repeat: 3 };
+      const st = { dx: f.dx, dy: f.dy };
+      if ("angle" in swing) this.tweens.add({ targets: held, ...swing, onComplete: home });
+      else this.tweens.add({ targets: st, ...("dx" in swing ? { dx: f.dx + (swing.dx ?? 0) } : { dy: swing.dy }), duration: swing.duration, yoyo: true, repeat: swing.repeat,
+        onUpdate: () => { f.dx = st.dx; f.dy = st.dy; }, onComplete: () => { f.dx = 10; f.dy = -18; home(); } });
+    });
   }
 
   /** The uplink, a child road or the rail carried something: it lights up for a moment. */
   private linkPulse(link: "parent" | "child" | "remote") {
-    if (link !== "remote" || this.reduceMotion) return;
-    const t = this.dynamic.find((o) => o.name === "train") as Phaser.GameObjects.Image | undefined;
-    if (!t) return;
-    this.busy++;
-    this.tweens.chain({ tweens: [{ targets: t, y: 420, duration: 1400, ease: "Sine.InOut" }, { targets: t, y: 120, duration: 1400, delay: 600, ease: "Sine.InOut" }],
-      onUpdate: () => t.setDepth(t.y), onComplete: () => { this.busy--; } } as unknown as Phaser.Types.Tweens.TweenChainBuilderConfig);
+    // The paired machine carried something: the next train comes now.
+    if (link === "remote" && !this.reduceMotion) this.trainNext = 0;
   }
+
 
   // MARK: Probing and measurement
 
   probe(click: boolean): boolean {
     for (const shop of this.shops.values()) {
-      const b = shop.bays.find((x) => x.id && x.window.texture.key === "bay-lit");
+      const b = shop.bays.find((x) => x.id && artOf(x.window) === "bay-lit");
       if (!b?.id) continue;
       const s = senatorsOf(this.state).get(b.id)!;
       const t: Target = { kind: "senator", senator: s, committee: shop.name };
@@ -1101,7 +1408,8 @@ export class Works extends Phaser.Scene {
   }
 
   stats() {
-    return { fps: Math.round(this.game.loop.actualFps), sleeping: !this.game.loop.running, shops: this.shops.size, busy: this.busy,
+    const recent = this.ticks.filter((t) => t > performance.now() - 2000).length / 2;
+    return { fps: Math.round(recent), zoom: Math.round(this.cameras.main.zoom * 100) / 100, sleeping: !this.game.loop.running, shops: this.shops.size, busy: this.busy,
       passed: this.passed, constructing: this.constructing };
   }
 }

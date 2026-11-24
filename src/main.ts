@@ -24,6 +24,9 @@ const params = new URLSearchParams(location.search);
 const dpr = Math.min(window.devicePixelRatio || 1, 3);
 const time = params.get("time");
 if (time === "dawn" || time === "day" || time === "dusk" || time === "night") scene.fixedTime = time as Daylight;
+const weather = params.get("weather"), season = params.get("season");
+if (weather && ["clear", "cloudy", "rain", "windy", "fog"].includes(weather)) scene.fixedWeather = weather as Works["fixedWeather"];
+if (season && ["spring", "summer", "autumn", "winter"].includes(season)) scene.fixedSeason = season as Works["fixedSeason"];
 const ago = (s: number) => s < 3600 ? `${Math.round(s / 60)} min` : s < 86_400 ? `${Math.round(s / 3600)} h` : s < 14 * 86_400 ? `${Math.round(s / 86_400)} days` : `${Math.round(s / (7 * 86_400))} weeks`;
 
 /** What a hover card says: the who and what, never drawn on the town. */
@@ -114,6 +117,7 @@ const game = new Phaser.Game({
   antialias: true,
   loader: { imageLoadType: "HTMLImageElement" },
   scale: { mode: Phaser.Scale.NONE, width: innerWidth * dpr, height: innerHeight * dpr, zoom: 1 / dpr },
+  fps: { limit: 30 },
   scene,
 });
 window.addEventListener("resize", () => {
@@ -121,10 +125,77 @@ window.addEventListener("resize", () => {
   game.scale.setZoom(1 / dpr);
 });
 
-// The loop sleeps when the town is still; any input wakes it.
+/**
+ * How often the town draws, by what the person can see:
+ * - in front (the window is key): 30 frames a second, 60 while panning or zooming;
+ * - visible but not in front: 10;
+ * - not visible at all (another page, the window hidden, occluded or
+ *   minimised, the display asleep): paused, nothing runs;
+ * - on battery or in Low Power Mode: at most 15.
+ * Movement is by elapsed time, so any rate looks right. The shell says what
+ * it knows (`visible`, and optionally `focused` and `power`); the page adds
+ * what the browser knows (document visibility, window focus).
+ */
+const pace = {
+  shellVisible: true,
+  /** The shell says whether its window is in front (it knows better than DOM focus, which follows clicks); else the browser does. */
+  shellFocused: undefined as boolean | undefined,
+  lowPower: false,
+  docFocused: document.hasFocus(),
+  interactUntil: 0,
+  limit: 30,
+  timer: 0,
+  apply() {
+    const visible = this.shellVisible && document.visibilityState === "visible";
+    if (!visible) {
+      scene.paused = true;
+      if (game.isBooted) { game.loop.sleep(); game.pause(); }
+      return;
+    }
+    const wasPaused = scene.paused;
+    scene.paused = false;
+    const now = performance.now();
+    let fps = !(this.shellFocused ?? this.docFocused) ? 10 : now < this.interactUntil ? 60 : 30;
+    if (this.lowPower) fps = Math.min(fps, 15);
+    if (game.isBooted) {
+      if (fps !== this.limit) { this.limit = fps; game.loop.setFPSLimit(fps); }
+      if (wasPaused) { game.resume(); scene.touch(); }
+    }
+  },
+  interact() {
+    if (scene.paused) return;
+    const was = performance.now() < this.interactUntil;
+    this.interactUntil = performance.now() + 800;
+    if (!was) this.apply();
+    clearTimeout(this.timer);
+    this.timer = window.setTimeout(() => this.apply(), 850);
+  },
+};
+document.addEventListener("visibilitychange", () => pace.apply());
+window.addEventListener("blur", () => { pace.docFocused = false; pace.apply(); });
+window.addEventListener("focus", () => { pace.docFocused = true; pace.apply(); });
+game.events.once("ready", () => pace.apply());
+
+// Under Reduce Motion the loop sleeps when the town is still; any input wakes it. Panning and zooming draw at 60.
 for (const type of ["pointermove", "pointerdown", "wheel", "keydown"]) {
-  window.addEventListener(type, () => scene.touch(), { passive: true });
+  window.addEventListener(type, (e) => {
+    scene.touch();
+    if (type === "wheel" || (type === "pointermove" && (e as PointerEvent).buttons)) pace.interact();
+  }, { passive: true });
 }
+
+// Calm: half the townspeople and no weather, kept in the shell's storage for this scene.
+const calmButton = document.getElementById("calm") as HTMLButtonElement;
+function showCalm(on: boolean) {
+  calmButton.setAttribute("aria-pressed", String(on));
+  calmButton.title = on ? "Calm is on: fewer people, no weather" : "Calm: fewer people, no weather";
+}
+calmButton.addEventListener("click", () => {
+  const on = !scene.calm;
+  scene.setCalm(on);
+  showCalm(on);
+  void host?.storageSet("calm", on);
+});
 
 // The shell: the app's web view, a parent page's port, or the dev shell
 // (?demo=large for 30 committees, ?recording=<file> for another recording).
@@ -142,8 +213,10 @@ function environment(env: Environment) {
   document.documentElement.lang = env.locale;
   const zone = env.time_zone;
   scene.clock = () => { try { return new Date(new Date().toLocaleString("en-US", { timeZone: zone })); } catch { return new Date(); } };
-  if (!game.isBooted) return;
-  if (!env.visible) { game.loop.sleep(); game.pause(); } else { game.resume(); scene.touch(); }
+  pace.shellVisible = env.visible;
+  pace.shellFocused = env.focused;
+  pace.lowPower = env.power === "battery" || env.power === "low_power";
+  pace.apply();
 }
 const feed = new Feed({ snapshot: (s, e) => scene.setState(s, e), events: (e) => scene.act(e) });
 
@@ -164,6 +237,8 @@ async function shell(): Promise<Binding> {
 }
 void shell().then((binding) => {
   host = connect(binding, { status, environment, snapshot: (s) => feed.snapshot(s), event: (f) => feed.frame(f) });
+  // The person's own setting, kept by the shell.
+  void host.storageGet("calm").then((v) => { if (v === true) { scene.setCalm(true); showCalm(true); } });
 });
 
 /** Controls for tests and the app's snapshot hook (no data goes in here). */
@@ -176,6 +251,23 @@ const api = {
   zoom(f: number) { scene.zoomAt(f, (innerWidth / 2) * dpr, (innerHeight / 2) * dpr); },
   stats() { return scene.stats(); },
   probe(click = false) { return scene.probe(click); },
+  /** A texture as a data URL (to look at a walk sheet). */
+  texture(key: string) { return scene.textures.exists(key) ? scene.textures.getBase64(key, "__BASE") : ""; },
+  /** What the town draws, by kind (measurement). */
+  counts() {
+    const out: Record<string, number> = {};
+    const walk = (list: Phaser.GameObjects.GameObject[]) => {
+      for (const o of list) {
+        out[o.type] = (out[o.type] ?? 0) + 1;
+        if (o instanceof Phaser.GameObjects.Container) walk(o.list);
+      }
+    };
+    walk(scene.children.list);
+    return out;
+  },
+  /** Hide every object of a kind (measurement: what it costs to draw). */
+  hide(type: string) { for (const o of scene.children.list) if (o.type === type) (o as unknown as { setVisible(v: boolean): void }).setVisible(false); },
+  textures() { return scene.textures.getTextureKeys().filter((k) => k.startsWith("walk-")); },
 };
 (window as unknown as { town: typeof api }).town = api;
 

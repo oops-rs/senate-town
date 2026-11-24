@@ -5,7 +5,7 @@
 // paused senator sleeps with its head down. No text: hover cards and clicks
 // as in the town. Esc (or the back button) returns to the town.
 import Phaser from "phaser";
-import { character, COLOURS_OF, deskItem, desk, INK, mailSlot, PALETTE, RUNTIME, sprite, terminal, TOOLS, tool as toolArt, unit } from "./art.ts";
+import { character, COLOURS_OF, deskItem, desk, INK, mailSlot, PALETTE, RUNTIME, sprite, terminal, TOOLS, tool as toolArt, unit, artOf } from "./art.ts";
 import { generateLook, readLook, type HouseSpec } from "./gen.ts";
 import type { Committee, Senator, ThreadRef, ToolKind, TownState } from "./model.ts";
 import type { Hooks, Target } from "./works.ts";
@@ -58,7 +58,7 @@ export class Room extends Phaser.Scene {
 
   /** Scale a sprite to `k` times its intended size. */
   private big(o: Phaser.GameObjects.Image, k: number) {
-    return o.setScale(unit(o.texture.key) * k);
+    return o.setScale(unit(artOf(o)) * k);
   }
 
   private hit(o: Phaser.GameObjects.Image, t: () => Target) {
@@ -80,7 +80,7 @@ export class Room extends Phaser.Scene {
   }
 
   private draw() {
-    for (const o of this.layer) o.destroy();
+    for (const o of this.layer) { this.tweens.killTweensOf(o); o.destroy(); }
     this.layer = [];
     this.desks.clear();
     const spec = this.data0.spec;
@@ -136,6 +136,16 @@ export class Room extends Phaser.Scene {
       pose: s.mood === "waiting" ? "wave" : s.mood === "working" ? "work" : "sit", chair: s.chair, glyph: s.runtime,
     })), 2.2);
     if (s.mood === "paused") who.setAngle(-14).setY(at.y + 16).setAlpha(0.8);
+    if (!this.data0.reduceMotion && s.mood !== "paused") {
+      // Alive at the desk: typing while it works; leaning back, a sip, a glance at a neighbour while it doesn't.
+      const y = who.y, seed = (at.x * 13) % 1700;
+      if (s.mood === "working") this.tweens.add({ targets: who, y: y - 1.6, duration: 130, yoyo: true, repeat: -1, repeatDelay: 40, delay: seed % 300 });
+      else this.tweens.chain({ targets: who, loop: -1, tweens: [
+        { angle: -6, duration: 500, delay: 2200 + seed, ease: "Sine.InOut" }, { angle: 0, duration: 500, delay: 1400, ease: "Sine.InOut" },
+        { y: y - 4, duration: 260, delay: 1800, yoyo: true, hold: 500 },
+        { scaleX: -who.scaleX, duration: 1, delay: 2000 }, { scaleX: who.scaleX, duration: 1, delay: 1200 },
+      ] } as unknown as Phaser.Types.Tweens.TweenChainBuilderConfig);
+    }
     const target = (): Target => ({ kind: "senator", senator: s, committee: this.data0.committee });
     this.layer.push(this.hit(who, target));
     this.layer.push(this.big(sprite(this, at.x, at.y + 40, desk(this, !!s.chair)), s.chair ? 1.2 : 1));

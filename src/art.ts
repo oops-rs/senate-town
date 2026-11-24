@@ -47,21 +47,76 @@ type G = Phaser.GameObjects.Graphics;
 const FINE = 4;
 const fine = new Set<string>();
 
+// MARK: The atlas
+//
+// Every piece of art is drawn once (antialiased, on a canvas) and then
+// packed into a few shared pages, each one texture: so the whole town is
+// drawn from a handful of textures and the renderer batches it into a few
+// draw calls instead of switching texture for nearly every sprite. A
+// piece's frame on its page is named by its key.
+
+const PAGE = 2048, PAD = 2;
+interface Page { key: string; tex: Phaser.Textures.DynamicTexture; x: number; y: number; row: number }
+const pages: Page[] = [];
+/** Key → the page it was packed on. */
+const packed = new Map<string, string>();
+
+/** Has this piece been made yet? */
+export const made = (key: string) => packed.has(key);
+
+function pack(scene: Phaser.Scene, key: string, tmp: string, w: number, h: number, frames?: [string, number, number, number, number][]) {
+  let page = pages.find((p) => (p.x + w <= PAGE && p.y + Math.max(p.row, h) <= PAGE) || (p.y + p.row + PAD + h <= PAGE && w <= PAGE));
+  if (!page || w > PAGE || h > PAGE) {
+    if (w > PAGE || h > PAGE) throw new Error(`art ${key} is larger than an atlas page`);
+    const pkey = `atlas-${pages.length}`;
+    page = { key: pkey, tex: scene.textures.addDynamicTexture(pkey, PAGE, PAGE)!, x: 0, y: 0, row: 0 };
+    pages.push(page);
+  }
+  if (page.x + w > PAGE) { page.x = 0; page.y += page.row + PAD; page.row = 0; }
+  const { x, y } = page;
+  page.tex.stamp(tmp, undefined, x, y, { originX: 0, originY: 0 });
+  page.tex.render();
+  page.tex.add(key, 0, x, y, w, h);
+  for (const [name, fx, fy, fw, fh] of frames ?? []) page.tex.add(name, 0, x + fx, y + fy, fw, fh);
+  page.x += w + PAD;
+  page.row = Math.max(page.row, h);
+  packed.set(key, page.key);
+}
+
 function make(scene: Phaser.Scene, key: string, w: number, h: number, draw: (g: G) => void, scale = S) {
-  if (scene.textures.exists(key)) return;
+  if (packed.has(key)) return;
   const g = scene.make.graphics({ x: 0, y: 0 }, false);
   g.scaleX = scale;
   g.scaleY = scale;
   draw(g);
-  g.generateTexture(key, Math.ceil(w * scale), Math.ceil(h * scale));
+  const W = Math.ceil(w * scale), H = Math.ceil(h * scale);
+  g.generateTexture("__art", W, H);
   g.destroy();
+  pack(scene, key, "__art", W, H);
+  scene.textures.remove("__art");
   if (scale === FINE) fine.add(key);
+}
+
+/** An image of a piece of art, unscaled (the texture's own pixels). */
+export function image(scene: Phaser.Scene, x: number, y: number, key: string): Phaser.GameObjects.Image {
+  return scene.add.image(x, y, packed.get(key) ?? key, packed.has(key) ? key : undefined);
 }
 
 /** Show a texture at its intended size. */
 export function sprite(scene: Phaser.Scene, x: number, y: number, key: string): Phaser.GameObjects.Image {
-  return scene.add.image(x, y, key).setScale(1 / (fine.has(key) ? FINE : S));
+  return image(scene, x, y, key).setScale(1 / (fine.has(key) ? FINE : S));
 }
+
+/** Swap an image's art (same scale rules as when it was made). */
+export function retexture(img: Phaser.GameObjects.Image, key: string): Phaser.GameObjects.Image {
+  return img.setTexture(packed.get(key) ?? key, packed.has(key) ? key : undefined);
+}
+
+/** Which piece of art an image shows. */
+export const artOf = (img: Phaser.GameObjects.Image) => (packed.has(img.frame.name) ? img.frame.name : img.texture.key);
+
+/** The page and frame of a piece (particles, and anything else that takes both). */
+export const where = (key: string): [string, string | undefined] => [packed.get(key) ?? key, packed.has(key) ? key : undefined];
 
 /** The scale that shows a texture at its intended size (for scaling it further). */
 export const unit = (key: string) => 1 / (fine.has(key) ? FINE : S);
@@ -289,15 +344,60 @@ export function gate(scene: Phaser.Scene): string {
   return "barrier";
 }
 
-export function tree(scene: Phaser.Scene): string {
-  make(scene, "tree", 46, 56, (g) => {
+/** A tree in its season: blossom, summer green, autumn colour, bare with snow. */
+export function tree(scene: Phaser.Scene, season: "spring" | "summer" | "autumn" | "winter" = "summer"): string {
+  const key = season === "summer" ? "tree" : `tree-${season}`;
+  make(scene, key, 46, 56, (g) => {
     g.fillStyle(0x000000, 0.15).fillEllipse(24, 52, 34, 8);
     roundRect(g, 20, 30, 7, 22, 3, PALETTE.woodDark);
-    g.fillStyle(PALETTE.leafDark, 1).fillCircle(14, 26, 12).fillCircle(32, 26, 12).fillCircle(23, 15, 14);
-    g.fillStyle(PALETTE.leaf, 1).fillCircle(14, 24, 10.5).fillCircle(32, 24, 10.5).fillCircle(23, 13, 12.5);
+    if (season === "winter") {
+      g.lineStyle(3, PALETTE.woodDark, 1);
+      for (const [x, y] of [[12, 14], [34, 14], [23, 4], [16, 24], [31, 22]] as const) g.beginPath().moveTo(23.5, 34).lineTo(x, y).strokePath();
+      g.fillStyle(0xffffff, 0.95).fillEllipse(13, 13, 9, 4).fillEllipse(34, 13, 9, 4).fillEllipse(23, 3.5, 9, 4);
+      return;
+    }
+    const [dark, light] = season === "autumn" ? [0xd9822b, 0xf2a93b] : season === "spring" ? [0x8fcf78, 0xa6dc8c] : [PALETTE.leafDark, PALETTE.leaf];
+    g.fillStyle(dark, 1).fillCircle(14, 26, 12).fillCircle(32, 26, 12).fillCircle(23, 15, 14);
+    g.fillStyle(light, 1).fillCircle(14, 24, 10.5).fillCircle(32, 24, 10.5).fillCircle(23, 13, 12.5);
+    if (season === "spring") { g.fillStyle(0xffc1d6, 1); for (const [x, y] of [[12, 20], [20, 9], [28, 14], [34, 24], [18, 28], [26, 24], [30, 7]] as const) g.fillCircle(x, y, 2.6); }
+    if (season === "autumn") { g.fillStyle(0xc0392b, 0.8); for (const [x, y] of [[13, 22], [27, 10], [33, 27]] as const) g.fillCircle(x, y, 3); }
     g.fillStyle(0xffffff, 0.25).fillCircle(19, 9, 4);
   });
-  return "tree";
+  return key;
+}
+
+/** A street lamp (its light is a glow switched on at dusk). */
+export function lamp(scene: Phaser.Scene): string {
+  make(scene, "lamp", 14, 46, (g) => {
+    g.fillStyle(0x000000, 0.15).fillEllipse(7, 44, 10, 3);
+    roundRect(g, 5.5, 10, 3, 34, 1.5, INK);
+    roundRect(g, 1, 2, 12, 10, 4, PALETTE.lit, INK, 1.5);
+  });
+  return "lamp";
+}
+
+/** A windmill's sails, turned in the wind. */
+export function sails(scene: Phaser.Scene): string {
+  make(scene, "sails", 64, 64, (g) => {
+    g.lineStyle(5, PALETTE.wood, 1);
+    for (const a of [0.4, 2.0, 3.5, 5.1]) g.beginPath().moveTo(32, 32).lineTo(32 + Math.cos(a) * 30, 32 + Math.sin(a) * 30).strokePath();
+    g.fillStyle(INK, 1).fillCircle(32, 32, 4);
+  });
+  return "sails";
+}
+
+/** A puff of chimney smoke; a raindrop; a cloud's shadow. */
+export function weatherArt(scene: Phaser.Scene) {
+  make(scene, "puff", 16, 16, (g) => g.fillStyle(0xffffff, 1).fillCircle(8, 8, 7));
+  make(scene, "drop", 3, 12, (g) => g.fillStyle(0xbcd6f0, 0.9).fillRoundedRect(0.5, 0, 2, 12, 1));
+  make(scene, "flake", 6, 6, (g) => g.fillStyle(0xffffff, 1).fillCircle(3, 3, 2.6));
+  make(scene, "cloud", 200, 110, (g) => {
+    // Soft-edged: rings of thin shade, thickest in the middle.
+    for (let k = 0; k < 10; k++) {
+      const f = 1 - k * 0.085;
+      g.fillStyle(0x000000, 0.1).fillEllipse(70, 60, 120 * f, 70 * f).fillEllipse(130, 50, 120 * f, 80 * f).fillEllipse(100, 70, 160 * f, 60 * f);
+    }
+  });
 }
 
 export function bench(scene: Phaser.Scene): string {
@@ -551,9 +651,6 @@ export function landmark(scene: Phaser.Scene, kind: string, colour: number): str
         break;
       case "windmill":
         g.fillStyle(colour, 1).fillPoints(pts([[18, 124], [24, 50], [36, 50], [42, 124]]), true); g.lineStyle(2, INK, 1).strokePoints(pts([[18, 124], [24, 50], [36, 50], [42, 124]]), true);
-        g.lineStyle(5, PALETTE.wood, 1);
-        for (const a of [0.4, 2.0, 3.5, 5.1]) g.beginPath().moveTo(30, 48).lineTo(30 + Math.cos(a) * 30, 48 + Math.sin(a) * 30).strokePath();
-        g.fillStyle(INK, 1).fillCircle(30, 48, 4);
         break;
       case "observatory":
         roundRect(g, 12, 62, 36, 62, 4, colour, INK, 2);
@@ -615,56 +712,157 @@ export function plant(scene: Phaser.Scene, species: string, shade: number): stri
 }
 
 /** A character: body shape, skin, hair, hat and accessory from its look; the shirt in its runtime's colour. */
-export function character(scene: Phaser.Scene, look: Look, shirt: number,
-  o: { pose?: "stand" | "wave" | "sit" | "work"; cane?: boolean; chair?: boolean; glyph?: string; hardhat?: boolean } = {}): string {
+export interface FigureOpts { pose?: "stand" | "wave" | "sit" | "work"; cane?: boolean; chair?: boolean; glyph?: string; hardhat?: boolean }
+
+/** One frame of a figure: which way it faces and where its limbs are. */
+export interface Frame {
+  dir: "down" | "up" | "side";
+  /** Legs: lift (down/up views) or stride (side view), -1..1, opposite for the two legs. */
+  step: number;
+  /** Body bob, px up. */
+  bob: number;
+  /** Eyes: -1 left, 0 ahead, 1 right. */
+  eyes: number;
+  /** Arms up (a stretch). */
+  stretch: boolean;
+  /** Seated (a bench). */
+  sit: boolean;
+}
+const STILL: Frame = { dir: "down", step: 0, bob: 0, eyes: 0, stretch: false, sit: false };
+
+/** A figure drawn from the generator's parts, at (cx, base): every look, every frame. */
+function figure(g: G, look: Look, shirt: number, o: FigureOpts, f: Frame, cx: number, base: number) {
+  const pose = o.pose ?? (f.sit ? "sit" : "stand");
+  const skin = SKINS[look.skin]!, hair = HAIRS[look.hairColour]!;
+  const side = f.dir === "side", back = f.dir === "up";
+  const bw0 = look.body === "round" ? 20 : look.body === "slim" ? 13 : 15;
+  const bw = side ? Math.round(bw0 * 0.72) : bw0;
+  const tall = look.body === "tall" ? 4 : 0;
+  g.fillStyle(0x000000, 0.15).fillEllipse(cx, base - 2, side ? 16 : 20, 5);
+  const by = base - 30 - tall - f.bob + (pose === "sit" ? 5 : 0);
+  const arm = Phaser.Display.Color.IntegerToColor(shirt).darken(12).color;
+  const legH = 14 + tall;
+  // Legs: lifted in turn seen from front or back; striding seen from the side.
+  if (pose === "sit") {
+    roundRect(g, cx - 6, by + 14, 5, 6, 2.5, INK); roundRect(g, cx + 1, by + 14, 5, 6, 2.5, INK);
+  } else if (side) {
+    const d = f.step * 5;
+    roundRect(g, cx - 2.5 - d, base - 16 - tall - f.bob * 0.3, 5, legH, 2.5, INK);
+    roundRect(g, cx - 2.5 + d, base - 16 - tall - f.bob * 0.3, 5, legH, 2.5, Phaser.Display.Color.IntegerToColor(INK).lighten(12).color);
+  } else {
+    const l = Math.max(0, f.step) * 3.5, r = Math.max(0, -f.step) * 3.5;
+    roundRect(g, cx - 6, base - 16 - tall - l, 5, legH, 2.5, INK);
+    roundRect(g, cx + 1, base - 16 - tall - r, 5, legH, 2.5, INK);
+  }
+  // Arms swing opposite the legs (or go up for a stretch, or wave, or work).
+  const swing = f.step * 3;
+  if (side) {
+    if (!back) roundRect(g, cx - 2.5 + (f.stretch ? 0 : -swing), f.stretch ? by - 10 : by + 1, 5, 12, 2.5, arm);
+  } else {
+    const lUp = pose === "wave" || f.stretch, rUp = f.stretch;
+    roundRect(g, cx - bw / 2 - 4, lUp ? by - 9 : by + 1 + swing * 0.9, 5, 12, 2.5, arm);
+    roundRect(g, cx + bw / 2 - 1, rUp ? by - 9 : pose === "work" ? by - 4 : by + 1 - swing * 0.9, 5, 12, 2.5, arm);
+  }
+  roundRect(g, cx - bw / 2, by, bw, 17, side ? 6 : 7, shirt, INK, 1.5);
+  if (!back && look.accessory === "scarf") roundRect(g, cx - bw / 2 + 1, by, bw - 2, 5, 2, 0xd2508f);
+  if (!back && !side && look.accessory === "bowtie") g.fillStyle(0xd2508f, 1).fillTriangle(cx - 5, by + 1, cx, by + 4, cx - 5, by + 7).fillTriangle(cx + 5, by + 1, cx, by + 4, cx + 5, by + 7);
+  // The runtime, readable whatever the costume: a small white mark on the shirt.
+  if (o.glyph && !back) {
+    g.lineStyle(1.5, 0xffffff, 1);
+    const gx = cx + (side ? 1 : 0), gy = by + 10;
+    if (o.glyph === "claude") for (let i = 0; i < 4; i++) { const a = (i * Math.PI) / 4; g.beginPath().moveTo(gx - Math.cos(a) * 3, gy - Math.sin(a) * 3).lineTo(gx + Math.cos(a) * 3, gy + Math.sin(a) * 3).strokePath(); }
+    else if (o.glyph === "codex") g.strokeCircle(gx, gy, 3);
+    else if (o.glyph === "agy") g.strokeTriangle(gx, gy - 3.5, gx + 3.5, gy + 2.5, gx - 3.5, gy + 2.5);
+  }
+  if (o.chair && !back) g.fillStyle(PALETTE.amber, 1).fillCircle(cx + bw / 2 - 4, by + 4, 3).lineStyle(1, INK, 1).strokeCircle(cx + bw / 2 - 4, by + 4, 3);
+  const hy = by - 8;
+  if (look.hair === "long" && !side) g.fillStyle(hair, 1).fillRoundedRect(cx - 9, hy - 6, 18, back ? 20 : 18, 7);
+  if (look.hair === "long" && side) g.fillStyle(hair, 1).fillRoundedRect(cx - 9, hy - 6, 12, 18, 6);
+  g.fillStyle(back && look.hair !== "bald" ? hair : skin, 1).fillCircle(cx, hy, 8);
+  g.lineStyle(1.5, INK, 1).strokeCircle(cx, hy, 8);
+  if (!back) {
+    if (look.hair !== "bald") {
+      if (side) g.fillStyle(hair, 1).slice(cx, hy, 8, Math.PI * 0.55, Math.PI * 1.9, false).fillPath();
+      else g.fillStyle(hair, 1).slice(cx, hy, 8, Math.PI * 1.05, Math.PI * 1.95, false).fillPath();
+    }
+    if (look.hair === "curly") { g.fillStyle(hair, 1); for (const dx of side ? [-6, -2, 2] : [-6, -2, 2, 6]) g.fillCircle(cx + dx, hy - 6, 3.4); }
+    const ex = f.eyes * 1.2;
+    if (side) {
+      g.fillStyle(INK, 1).fillCircle(cx + 4, hy + 1, 1.1);
+      g.fillStyle(0xf28b82, 0.55).fillCircle(cx + 5, hy + 3, 1.5);
+      if (look.accessory === "glasses") g.lineStyle(1.2, INK, 1).strokeCircle(cx + 4, hy + 1, 2.4);
+    } else {
+      g.fillStyle(INK, 1).fillCircle(cx - 3 + ex, hy + 1, 1.1).fillCircle(cx + 3 + ex, hy + 1, 1.1);
+      g.fillStyle(0xf28b82, 0.55).fillCircle(cx - 5, hy + 3, 1.5).fillCircle(cx + 5, hy + 3, 1.5);
+      if (look.accessory === "glasses") g.lineStyle(1.2, INK, 1).strokeCircle(cx - 3, hy + 1, 2.4).strokeCircle(cx + 3, hy + 1, 2.4);
+    }
+  } else if (look.hair === "curly") { g.fillStyle(hair, 1); for (const dx of [-6, -2, 2, 6]) g.fillCircle(cx + dx, hy - 6, 3.4); }
+  if (look.hair === "bun") g.fillStyle(hair, 1).fillCircle(cx + (side ? -6 : 0), hy - 9 + (side ? 4 : 0), 4);
+  if (look.accessory === "headphones" && !side) g.lineStyle(2, INK, 1).beginPath().arc(cx, hy, 9, Math.PI, 0).strokePath().fillStyle(0xd2508f, 1).fillCircle(cx - 9, hy + 1, 2.5).fillCircle(cx + 9, hy + 1, 2.5);
+  if (look.accessory === "headphones" && side) g.lineStyle(2, INK, 1).beginPath().arc(cx, hy, 9, Math.PI, 0).strokePath().fillStyle(0xd2508f, 1).fillCircle(cx, hy + 1, 3);
+  const hatColour = o.hardhat ? PALETTE.amber : COLOURS[look.hatColour]!;
+  const hat = o.hardhat ? "hardhat" : look.hat;
+  switch (hat) {
+    case "cap": roundRect(g, cx - 8, hy - 9, 16, 6, 3, hatColour, INK, 1); if (!back) g.fillStyle(hatColour, 1).fillRect(cx, hy - 5, side ? 12 : 10, 2.5); break;
+    case "beret": g.fillStyle(hatColour, 1).fillEllipse(cx - 1, hy - 7, 18, 7); break;
+    case "top": roundRect(g, cx - 6, hy - 19, 12, 12, 2, INK); roundRect(g, cx - 9, hy - 8, 18, 3, 1.5, INK); break;
+    case "beanie": g.fillStyle(hatColour, 1).slice(cx, hy - 2, 8.5, Math.PI, 0, false).fillPath(); g.fillCircle(cx, hy - 11, 2.5); break;
+    case "hardhat": g.fillStyle(hatColour, 1).slice(cx, hy - 2, 9, Math.PI, 0, false).fillPath(); g.fillRect(cx - 11, hy - 3, 22, 2.5); break;
+  }
+  if (o.cane) {
+    const kx = side ? cx + 7 : cx + bw / 2 + 4;
+    g.lineStyle(2, PALETTE.woodDark, 1).beginPath().moveTo(kx, by + 4).lineTo(kx + 1 + f.step, base - 2).strokePath();
+  }
+}
+
+export function character(scene: Phaser.Scene, look: Look, shirt: number, o: FigureOpts = {}): string {
   const pose = o.pose ?? "stand";
   const key = `char-${lookKey(look)}-${shirt.toString(16)}-${pose}-${o.cane ? 1 : 0}-${o.chair ? 1 : 0}-${o.glyph ?? ""}-${o.hardhat ? 1 : 0}`;
-  const bw = look.body === "round" ? 20 : look.body === "slim" ? 13 : 15;
-  const tall = look.body === "tall" ? 4 : 0;
-  make(scene, key, 30, 46, (g) => {
-    const cx = 15, base = 44, skin = SKINS[look.skin]!, hair = HAIRS[look.hairColour]!;
-    g.fillStyle(0x000000, 0.15).fillEllipse(cx, base - 2, 20, 5);
-    if (pose !== "sit") { roundRect(g, cx - 6, base - 16 - tall, 5, 14 + tall, 2.5, INK); roundRect(g, cx + 1, base - 16 - tall, 5, 14 + tall, 2.5, INK); }
-    const by = base - 30 - tall;
-    const arm = Phaser.Display.Color.IntegerToColor(shirt).darken(12).color;
-    roundRect(g, cx - bw / 2 - 4, pose === "wave" ? by - 8 : by + 1, 5, 12, 2.5, arm);
-    roundRect(g, cx + bw / 2 - 1, pose === "work" ? by - 4 : by + 1, 5, 12, 2.5, arm);
-    roundRect(g, cx - bw / 2, by, bw, 17, 7, shirt, INK, 1.5);
-    if (look.accessory === "scarf") roundRect(g, cx - bw / 2 + 1, by, bw - 2, 5, 2, 0xd2508f);
-    if (look.accessory === "bowtie") g.fillStyle(0xd2508f, 1).fillTriangle(cx - 5, by + 1, cx, by + 4, cx - 5, by + 7).fillTriangle(cx + 5, by + 1, cx, by + 4, cx + 5, by + 7);
-    // The runtime, readable whatever the costume: a small white mark on the shirt.
-    if (o.glyph) {
-      g.lineStyle(1.5, 0xffffff, 1);
-      const gx = cx, gy = by + 10;
-      if (o.glyph === "claude") for (let i = 0; i < 4; i++) { const a = (i * Math.PI) / 4; g.beginPath().moveTo(gx - Math.cos(a) * 3, gy - Math.sin(a) * 3).lineTo(gx + Math.cos(a) * 3, gy + Math.sin(a) * 3).strokePath(); }
-      else if (o.glyph === "codex") g.strokeCircle(gx, gy, 3);
-      else if (o.glyph === "agy") g.strokeTriangle(gx, gy - 3.5, gx + 3.5, gy + 2.5, gx - 3.5, gy + 2.5);
-    }
-    if (o.chair) g.fillStyle(PALETTE.amber, 1).fillCircle(cx + bw / 2 - 4, by + 4, 3).lineStyle(1, INK, 1).strokeCircle(cx + bw / 2 - 4, by + 4, 3);
-    const hy = by - 8;
-    if (look.hair === "long") g.fillStyle(hair, 1).fillRoundedRect(cx - 9, hy - 6, 18, 18, 7);
-    g.fillStyle(skin, 1).fillCircle(cx, hy, 8);
-    g.lineStyle(1.5, INK, 1).strokeCircle(cx, hy, 8);
-    if (look.hair !== "bald") g.fillStyle(hair, 1).slice(cx, hy, 8, Math.PI * 1.05, Math.PI * 1.95, false).fillPath();
-    if (look.hair === "bun") g.fillStyle(hair, 1).fillCircle(cx, hy - 9, 4);
-    if (look.hair === "curly") { g.fillStyle(hair, 1); for (const dx of [-6, -2, 2, 6]) g.fillCircle(cx + dx, hy - 6, 3.4); }
-    g.fillStyle(INK, 1).fillCircle(cx - 3, hy + 1, 1.1).fillCircle(cx + 3, hy + 1, 1.1);
-    g.fillStyle(0xf28b82, 0.55).fillCircle(cx - 5, hy + 3, 1.5).fillCircle(cx + 5, hy + 3, 1.5);
-    if (look.accessory === "glasses") g.lineStyle(1.2, INK, 1).strokeCircle(cx - 3, hy + 1, 2.4).strokeCircle(cx + 3, hy + 1, 2.4);
-    if (look.accessory === "headphones") g.lineStyle(2, INK, 1).beginPath().arc(cx, hy, 9, Math.PI, 0).strokePath().fillStyle(0xd2508f, 1).fillCircle(cx - 9, hy + 1, 2.5).fillCircle(cx + 9, hy + 1, 2.5);
-    const hatColour = o.hardhat ? PALETTE.amber : COLOURS[look.hatColour]!;
-    const hat = o.hardhat ? "hardhat" : look.hat;
-    switch (hat) {
-      case "cap": roundRect(g, cx - 8, hy - 9, 16, 6, 3, hatColour, INK, 1); g.fillStyle(hatColour, 1).fillRect(cx, hy - 5, 10, 2.5); break;
-      case "beret": g.fillStyle(hatColour, 1).fillEllipse(cx - 1, hy - 7, 18, 7); break;
-      case "top": roundRect(g, cx - 6, hy - 19, 12, 12, 2, INK); roundRect(g, cx - 9, hy - 8, 18, 3, 1.5, INK); break;
-      case "beanie": g.fillStyle(hatColour, 1).slice(cx, hy - 2, 8.5, Math.PI, 0, false).fillPath(); g.fillCircle(cx, hy - 11, 2.5); break;
-      case "hardhat": g.fillStyle(hatColour, 1).slice(cx, hy - 2, 9, Math.PI, 0, false).fillPath(); g.fillRect(cx - 11, hy - 3, 22, 2.5); break;
-    }
-    if (o.cane) g.lineStyle(2, PALETTE.woodDark, 1).beginPath().moveTo(cx + bw / 2 + 4, by + 4).lineTo(cx + bw / 2 + 5, base - 2).strokePath();
-  }, FINE);
+  make(scene, key, 30, 46, (g) => figure(g, look, shirt, o, { ...STILL, sit: pose === "sit" }, 15, 44), FINE);
   return key;
 }
+
+/** The frames of a walking, idling figure, in one sheet. */
+export const WALK_FRAMES = 6;
+export const IDLE = ["still", "breathe", "left", "right", "stretch"] as const;
+export type SheetFrame = `walk-${"down" | "up" | "side"}-${number}` | `idle-${(typeof IDLE)[number]}` | "sit" | "side" | "up";
+const SHEET_SCALE = 2;
+
+/**
+ * A figure's sheet: a walk cycle facing down, up and to the side (mirrored
+ * for the other side), idle frames (breathing, looking round, a stretch),
+ * seated, and standing side-on and from behind. Drawn from the same parts as
+ * the character generator, so every look and card walks.
+ */
+export function walkSheet(scene: Phaser.Scene, look: Look, shirt: number, o: FigureOpts = {}): string {
+  const key = `walk-${lookKey(look)}-${shirt.toString(16)}-${o.cane ? 1 : 0}-${o.glyph ?? ""}-${o.hardhat ? 1 : 0}`;
+  if (packed.has(key)) return key;
+  const frames: [SheetFrame, Frame][] = [];
+  for (const dir of ["down", "up", "side"] as const) {
+    for (let i = 0; i < WALK_FRAMES; i++) {
+      const p = (i / WALK_FRAMES) * Math.PI * 2;
+      frames.push([`walk-${dir}-${i}`, { ...STILL, dir, step: Math.sin(p), bob: Math.abs(Math.sin(p)) * 1.4 }]);
+    }
+  }
+  frames.push(["idle-still", STILL], ["idle-breathe", { ...STILL, bob: 0.7 }], ["idle-left", { ...STILL, eyes: -1 }],
+    ["idle-right", { ...STILL, eyes: 1 }], ["idle-stretch", { ...STILL, stretch: true, bob: 1 }],
+    ["sit", { ...STILL, sit: true }], ["side", { ...STILL, dir: "side" }], ["up", { ...STILL, dir: "up" }]);
+  const W = 30, H = 58, cols = 8, rows = Math.ceil(frames.length / cols);
+  const g = scene.make.graphics({ x: 0, y: 0 }, false);
+  g.scaleX = SHEET_SCALE;
+  g.scaleY = SHEET_SCALE;
+  frames.forEach(([, f], i) => {
+    figure(g, look, shirt, { ...o, pose: undefined }, f, (i % cols) * W + 15, Math.floor(i / cols) * H + 56);
+  });
+  g.generateTexture("__art", W * cols * SHEET_SCALE, H * rows * SHEET_SCALE);
+  g.destroy();
+  // Packed whole into the atlas; each frame named `<sheet>|<frame>`.
+  pack(scene, key, "__art", W * cols * SHEET_SCALE, H * rows * SHEET_SCALE,
+    frames.map(([name], i) => [`${key}|${name}`, (i % cols) * W * SHEET_SCALE, Math.floor(i / cols) * H * SHEET_SCALE, W * SHEET_SCALE, H * SHEET_SCALE]));
+  scene.textures.remove("__art");
+  return key;
+}
+export const SHEET_UNIT = 1 / SHEET_SCALE;
 
 /** The Speaker's house: the desk's home, near the centre — porch, columns, a flag. */
 export function speakerHouse(scene: Phaser.Scene): string {

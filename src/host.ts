@@ -24,6 +24,10 @@ export interface Environment {
   visible: boolean;
   viewport: { width: number; height: number };
   safe_area: { top: number; right: number; bottom: number; left: number };
+  /** Optional (an addition to the contract): the window is the one in front. */
+  focused?: boolean;
+  /** Optional (an addition to the contract): on battery or in Low Power Mode, draw less. */
+  power?: "ac" | "battery" | "low_power";
 }
 
 export type Status = "ready" | "access_needed" | "data_unavailable" | "version_mismatch";

@@ -49,8 +49,42 @@ writes the scripted day (`src/script.ts`) as an observe recording
 (`npm run record`); it is for development and never bundled.
 
 Browser flags: `demo=large`, `recording=<file>`, `once`, `time=day|dusk|night`,
+`weather=clear|cloudy|rain|windy|fog`, `season=spring|summer|autumn|winter`,
 `dark=1|0`, `reduce-motion`, `enter=<committee>` (start inside a house),
 `stats`.
+
+## A living town, at little cost
+
+Townspeople walk (frames drawn from the same parts as every look, so a
+card's look walks too), sit, chat, wait for capsules, shelter from rain and
+go home at night; idle senators step out round their house and hurry back
+when work comes; workers walk to the job and back; elders walk slowly on the
+promenade. The Senate's data still decides what is true: no routine invents
+a message, a visit between two named senators, or a state.
+
+The world: light that follows the clock continuously, lamps and windows at
+dusk, the day's weather (clear, cloudy, rain or snow, wind, morning fog) and
+the season (blossom, green, autumn, bare trees and snow on roofs), trees in
+the wind, smoke from chimneys where work is happening, the windmill, the
+flag, the wheel turning faster with traffic, cloud shadows, a cat, birds, a
+train on a timetable.
+
+Budget, by what the person can see:
+- the window in front: 30 frames a second (60 while panning or zooming);
+- visible but not in front: 10;
+- not visible (another page, the window hidden, occluded or minimised, the
+  display asleep): paused, nothing runs;
+- on battery or in Low Power Mode: at most 15.
+
+Movement is by elapsed time, so any rate looks right. All the art is packed
+into a few atlas pages (a handful of textures, so the renderer batches the
+town into few draw calls); the plaza, its roads, the tubes and the lots are
+drawn once into a texture (again only when the state changes); what is out
+of view isn't drawn; people off screen are moved but not animated; the
+population is capped by what the view can hold and by the hour. **Calm** (the
+leaf button; kept in the shell's storage) halves the townspeople and turns
+the weather off. Under Reduce Motion nobody walks (people fade from place to
+place), no weather moves, and the loop sleeps when still.
 
 ## In the app
 
@@ -58,7 +92,9 @@ Browser flags: `demo=large`, `recording=<file>`, `once`, `time=day|dusk|night`,
 into `apps/macos/Senate/Web/town/`, which is committed so Xcode never needs
 Node. `SENATE_APP_TOWN_WEB=1` shows the page in the Town tab, the app being
 its shell; `SENATE_APP_TOWN_DEMO=1` (or `large`) loads it with `?demo=…`
-so its own dev shell plays the demo instead.
+so its own dev shell plays the demo instead; `SENATE_APP_TOWN_TIME`,
+`SENATE_APP_TOWN_WEATHER` and `SENATE_APP_TOWN_SEASON` fix the demo's time of
+day, weather and season.
 
 ## Where things live
 
@@ -68,7 +104,11 @@ so its own dev shell plays the demo instead.
 | `src/director.ts` | events → actions: at most 6 walkers, a queue of 12, up to 8 tool workers, guests |
 | `src/hub.ts` | the hub-and-ring layout: fixed ring slots, the civic wedge, tubes, signals, stable slots as committees come and go |
 | `src/gen.ts` | seeded houses and characters (no two alike), strict reading of house and character cards |
-| `src/art.ts` | every texture, drawn in code |
+| `src/art.ts` | every texture, drawn in code; figures from the generator's parts, and their walk sheets (walk cycles facing down, up and sideways, idle frames, seated) |
+| `src/people.ts` | a person: walks a path with the frame following the distance walked (no sliding feet), eases in and out, idles alive; fades instead under Reduce Motion |
+| `src/life.ts` | the townspeople's routines (stroll, sit on a bench, chat in pairs, wait for a capsule to pass, shelter from rain, home at night), the cat, the birds |
+| `src/nav.ts` | where people can walk: a grid with the buildings blocked out, A* and string-pulling (our own, no library) |
+| `src/world.ts` | the day's weather and season (seeded by the date: the same for everyone), the light through the day, how many are out by the hour |
 | `src/works.ts` | the `Works` scene: houses, tubes, capsules, sorting hall, archive, signals, gates, workers, civilians, construction, elders, monuments, time of day |
 | `src/room.ts` | the `Room` scene: inside a house, the senators at their desks |
 | `src/host.ts`, `src/shell.ts` | the scene host contract and the dev shell |
