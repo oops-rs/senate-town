@@ -1,0 +1,1167 @@
+{
+ "version": 1,
+ "snapshot": {
+  "person": "alice",
+  "history": 214,
+  "elders": [
+   {
+    "id": "codex-flaky",
+    "name": "flaky",
+    "runtime": "codex",
+    "idle": 7200,
+    "sessionId": "demo-past-flaky",
+    "committee": "senate"
+   },
+   {
+    "id": "claude-deploy",
+    "name": "deploy",
+    "runtime": "claude",
+    "idle": 259200,
+    "sessionId": "demo-past-deploy",
+    "committee": "infra"
+   },
+   {
+    "id": "agy-oncall",
+    "name": "oncall",
+    "runtime": "agy",
+    "idle": 1814400,
+    "sessionId": "demo-past-oncall",
+    "committee": "infra"
+   },
+   {
+    "id": "claude-scout",
+    "name": "scout",
+    "runtime": "claude",
+    "idle": 21600,
+    "sessionId": "demo-past-scout",
+    "committee": "web"
+   }
+  ],
+  "projects": [
+   {
+    "id": "senate",
+    "name": "senate",
+    "releases": [
+     {
+      "name": "v0.10.0",
+      "date": "Nov 23",
+      "merges": 5,
+      "plaques": [
+       "app icon & sidebar",
+       "sessions in the app"
+      ]
+     },
+     {
+      "name": "v0.11.0",
+      "date": "Nov 24",
+      "merges": 10,
+      "plaques": [
+       "Markdown as a block tree",
+       "Antigravity timeline",
+       "desk forward"
+      ]
+     },
+     {
+      "name": "v0.12.0",
+      "date": "Nov 24",
+      "merges": 19,
+      "plaques": [
+       "remote hardening",
+       "accessibility audit",
+       "Secretary row"
+      ]
+     },
+     {
+      "name": "v0.12.2",
+      "date": "Nov 24",
+      "merges": 7,
+      "plaques": [
+       "committee archive",
+       "app polish"
+      ]
+     },
+     {
+      "name": "v0.12.3",
+      "date": "Nov 24",
+      "merges": 8,
+      "plaques": [
+       "show archived",
+       "History in the app"
+      ]
+     }
+    ],
+    "unreleased": {
+     "merges": 8,
+     "plaques": [
+      "senate desk",
+      "watch finder",
+      "profile stats"
+     ]
+    },
+    "committees": [
+     "senate",
+     "docs"
+    ]
+   },
+   {
+    "id": "ledger",
+    "name": "ledger-app",
+    "releases": [
+     {
+      "name": "v1.4.0",
+      "merges": 12,
+      "plaques": [
+       "refund tables"
+      ]
+     },
+     {
+      "name": "v1.5.0",
+      "merges": 6,
+      "plaques": [
+       "schema v3"
+      ]
+     }
+    ],
+    "unreleased": {
+     "merges": 3,
+     "plaques": [
+      "migration window"
+     ]
+    },
+    "committees": [
+     "ledger"
+    ]
+   },
+   {
+    "id": "web",
+    "name": "storefront",
+    "releases": [
+     {
+      "name": "2026.10",
+      "merges": 9,
+      "plaques": [
+       "colour tokens"
+      ]
+     },
+     {
+      "name": "2026.11",
+      "merges": 14,
+      "plaques": [
+       "new checkout"
+      ]
+     }
+    ],
+    "committees": [
+     "web",
+     "ios-duo"
+    ]
+   }
+  ],
+  "links": {
+   "parent": {
+    "name": "/acme",
+    "up": true
+   },
+   "children": [
+    {
+     "name": "ci-runner",
+     "up": true
+    },
+    {
+     "name": "bob-desk",
+     "up": false
+    }
+   ],
+   "remotes": [
+    {
+     "name": "studio-mini",
+     "up": true
+    }
+   ]
+  },
+  "approvals": [
+   {
+    "senator": "s5",
+    "ask": "Bash: rm -rf build/",
+    "person": "alice"
+   }
+  ],
+  "archived": [
+   {
+    "name": "legacy-api",
+    "project": "senate",
+    "closed": "Oct 2",
+    "shipped": [
+     "the first daemon",
+     "SSE streams",
+     "the CLI's ask"
+    ]
+   }
+  ],
+  "committees": [
+   {
+    "name": "committee-0",
+    "senators": [
+     {
+      "id": "s0",
+      "name": "senator-0",
+      "runtime": "claude",
+      "mood": "working",
+      "chair": true,
+      "sessionId": "demo-s0",
+      "doing": "Chairing",
+      "watched": false
+     }
+    ],
+    "waiting": [
+     {
+      "committee": "committee-0",
+      "root": 1,
+      "title": "Question"
+     }
+    ]
+   },
+   {
+    "name": "committee-1",
+    "senators": [
+     {
+      "id": "s1",
+      "name": "senator-1",
+      "runtime": "codex",
+      "mood": "paused",
+      "chair": true,
+      "sessionId": "demo-s1",
+      "doing": "Chairing",
+      "watched": false
+     },
+     {
+      "id": "s2",
+      "name": "senator-2",
+      "runtime": "agy",
+      "mood": "stopped",
+      "chair": false,
+      "sessionId": "demo-s2",
+      "watched": false
+     }
+    ],
+    "waiting": []
+   },
+   {
+    "name": "committee-2",
+    "senators": [
+     {
+      "id": "s3",
+      "name": "senator-3",
+      "runtime": "claude",
+      "mood": "working",
+      "chair": true,
+      "sessionId": "demo-s3",
+      "doing": "Chairing",
+      "watched": false
+     },
+     {
+      "id": "s4",
+      "name": "senator-4",
+      "runtime": "claude",
+      "mood": "idle",
+      "chair": false,
+      "sessionId": "demo-s4",
+      "watched": false
+     },
+     {
+      "id": "s5",
+      "name": "senator-5",
+      "runtime": "codex",
+      "mood": "idle",
+      "chair": false,
+      "sessionId": "demo-s5",
+      "watched": false
+     }
+    ],
+    "waiting": []
+   },
+   {
+    "name": "committee-3",
+    "senators": [
+     {
+      "id": "s6",
+      "name": "senator-6",
+      "runtime": "agy",
+      "mood": "waiting",
+      "chair": true,
+      "sessionId": "demo-s6",
+      "doing": "Chairing",
+      "watched": false
+     }
+    ],
+    "waiting": []
+   },
+   {
+    "name": "committee-4",
+    "senators": [
+     {
+      "id": "s7",
+      "name": "senator-7",
+      "runtime": "claude",
+      "mood": "idle",
+      "chair": true,
+      "sessionId": "demo-s7",
+      "doing": "Chairing",
+      "watched": false
+     },
+     {
+      "id": "s8",
+      "name": "senator-8",
+      "runtime": "claude",
+      "mood": "paused",
+      "chair": false,
+      "sessionId": "demo-s8",
+      "watched": false
+     }
+    ],
+    "waiting": []
+   },
+   {
+    "name": "committee-5",
+    "senators": [
+     {
+      "id": "s9",
+      "name": "senator-9",
+      "runtime": "codex",
+      "mood": "working",
+      "chair": true,
+      "sessionId": "demo-s9",
+      "doing": "Chairing",
+      "watched": false
+     },
+     {
+      "id": "s10",
+      "name": "senator-10",
+      "runtime": "agy",
+      "mood": "working",
+      "chair": false,
+      "sessionId": "demo-s10",
+      "watched": false
+     },
+     {
+      "id": "s11",
+      "name": "senator-11",
+      "runtime": "claude",
+      "mood": "idle",
+      "chair": false,
+      "sessionId": "demo-s11",
+      "watched": false
+     }
+    ],
+    "waiting": []
+   },
+   {
+    "name": "committee-6",
+    "senators": [
+     {
+      "id": "s12",
+      "name": "senator-12",
+      "runtime": "claude",
+      "mood": "idle",
+      "chair": true,
+      "sessionId": "demo-s12",
+      "doing": "Chairing",
+      "watched": false
+     }
+    ],
+    "waiting": []
+   },
+   {
+    "name": "committee-7",
+    "senators": [
+     {
+      "id": "s13",
+      "name": "senator-13",
+      "runtime": "codex",
+      "mood": "idle",
+      "chair": true,
+      "sessionId": "demo-s13",
+      "doing": "Chairing",
+      "watched": false
+     },
+     {
+      "id": "s14",
+      "name": "senator-14",
+      "runtime": "agy",
+      "mood": "idle",
+      "chair": false,
+      "sessionId": "demo-s14",
+      "watched": false
+     }
+    ],
+    "waiting": [
+     {
+      "committee": "committee-7",
+      "root": 8,
+      "title": "Question"
+     }
+    ]
+   },
+   {
+    "name": "committee-8",
+    "senators": [
+     {
+      "id": "s15",
+      "name": "senator-15",
+      "runtime": "claude",
+      "mood": "waiting",
+      "chair": true,
+      "sessionId": "demo-s15",
+      "doing": "Chairing",
+      "watched": false
+     },
+     {
+      "id": "s16",
+      "name": "senator-16",
+      "runtime": "claude",
+      "mood": "working",
+      "chair": false,
+      "sessionId": "demo-s16",
+      "watched": false
+     },
+     {
+      "id": "s17",
+      "name": "senator-17",
+      "runtime": "codex",
+      "mood": "working",
+      "chair": false,
+      "sessionId": "demo-s17",
+      "watched": false
+     }
+    ],
+    "waiting": []
+   },
+   {
+    "name": "committee-9",
+    "senators": [
+     {
+      "id": "s18",
+      "name": "senator-18",
+      "runtime": "agy",
+      "mood": "stopped",
+      "chair": true,
+      "sessionId": "demo-s18",
+      "doing": "Chairing",
+      "watched": false
+     }
+    ],
+    "waiting": []
+   },
+   {
+    "name": "committee-10",
+    "senators": [
+     {
+      "id": "s19",
+      "name": "senator-19",
+      "runtime": "claude",
+      "mood": "working",
+      "chair": true,
+      "sessionId": "demo-s19",
+      "doing": "Chairing",
+      "watched": false
+     },
+     {
+      "id": "s20",
+      "name": "senator-20",
+      "runtime": "claude",
+      "mood": "idle",
+      "chair": false,
+      "sessionId": "demo-s20",
+      "watched": false
+     }
+    ],
+    "waiting": []
+   },
+   {
+    "name": "committee-11",
+    "senators": [
+     {
+      "id": "s21",
+      "name": "senator-21",
+      "runtime": "codex",
+      "mood": "idle",
+      "chair": true,
+      "sessionId": "demo-s21",
+      "doing": "Chairing",
+      "watched": false
+     },
+     {
+      "id": "s22",
+      "name": "senator-22",
+      "runtime": "agy",
+      "mood": "waiting",
+      "chair": false,
+      "sessionId": "demo-s22",
+      "watched": false
+     },
+     {
+      "id": "s23",
+      "name": "senator-23",
+      "runtime": "claude",
+      "mood": "working",
+      "chair": false,
+      "sessionId": "demo-s23",
+      "watched": false
+     }
+    ],
+    "waiting": []
+   },
+   {
+    "name": "committee-12",
+    "senators": [
+     {
+      "id": "s24",
+      "name": "senator-24",
+      "runtime": "claude",
+      "mood": "paused",
+      "chair": true,
+      "sessionId": "demo-s24",
+      "doing": "Chairing",
+      "watched": false
+     }
+    ],
+    "waiting": []
+   },
+   {
+    "name": "committee-13",
+    "senators": [
+     {
+      "id": "s25",
+      "name": "senator-25",
+      "runtime": "codex",
+      "mood": "working",
+      "chair": true,
+      "sessionId": "demo-s25",
+      "doing": "Chairing",
+      "watched": false
+     },
+     {
+      "id": "s26",
+      "name": "senator-26",
+      "runtime": "agy",
+      "mood": "working",
+      "chair": false,
+      "sessionId": "demo-s26",
+      "watched": false
+     }
+    ],
+    "waiting": []
+   },
+   {
+    "name": "committee-14",
+    "senators": [
+     {
+      "id": "s27",
+      "name": "senator-27",
+      "runtime": "claude",
+      "mood": "stopped",
+      "chair": true,
+      "sessionId": "demo-s27",
+      "doing": "Chairing",
+      "watched": false
+     },
+     {
+      "id": "s28",
+      "name": "senator-28",
+      "runtime": "claude",
+      "mood": "idle",
+      "chair": false,
+      "sessionId": "demo-s28",
+      "watched": false
+     },
+     {
+      "id": "s29",
+      "name": "senator-29",
+      "runtime": "codex",
+      "mood": "waiting",
+      "chair": false,
+      "sessionId": "demo-s29",
+      "watched": false
+     }
+    ],
+    "waiting": [
+     {
+      "committee": "committee-14",
+      "root": 15,
+      "title": "Question"
+     }
+    ]
+   },
+   {
+    "name": "committee-15",
+    "senators": [
+     {
+      "id": "s30",
+      "name": "senator-30",
+      "runtime": "agy",
+      "mood": "idle",
+      "chair": true,
+      "sessionId": "demo-s30",
+      "doing": "Chairing",
+      "watched": false
+     }
+    ],
+    "waiting": []
+   },
+   {
+    "name": "committee-16",
+    "senators": [
+     {
+      "id": "s31",
+      "name": "senator-31",
+      "runtime": "claude",
+      "mood": "waiting",
+      "chair": true,
+      "sessionId": "demo-s31",
+      "doing": "Chairing",
+      "watched": false
+     },
+     {
+      "id": "s32",
+      "name": "senator-32",
+      "runtime": "claude",
+      "mood": "working",
+      "chair": false,
+      "sessionId": "demo-s32",
+      "watched": false
+     }
+    ],
+    "waiting": []
+   },
+   {
+    "name": "committee-17",
+    "senators": [
+     {
+      "id": "s33",
+      "name": "senator-33",
+      "runtime": "codex",
+      "mood": "paused",
+      "chair": true,
+      "sessionId": "demo-s33",
+      "doing": "Chairing",
+      "watched": false
+     },
+     {
+      "id": "s34",
+      "name": "senator-34",
+      "runtime": "agy",
+      "mood": "stopped",
+      "chair": false,
+      "sessionId": "demo-s34",
+      "watched": false
+     },
+     {
+      "id": "s35",
+      "name": "senator-35",
+      "runtime": "claude",
+      "mood": "idle",
+      "chair": false,
+      "sessionId": "demo-s35",
+      "watched": false
+     }
+    ],
+    "waiting": []
+   },
+   {
+    "name": "committee-18",
+    "senators": [
+     {
+      "id": "s36",
+      "name": "senator-36",
+      "runtime": "claude",
+      "mood": "idle",
+      "chair": true,
+      "sessionId": "demo-s36",
+      "doing": "Chairing",
+      "watched": false
+     }
+    ],
+    "waiting": []
+   },
+   {
+    "name": "committee-19",
+    "senators": [
+     {
+      "id": "s37",
+      "name": "senator-37",
+      "runtime": "codex",
+      "mood": "idle",
+      "chair": true,
+      "sessionId": "demo-s37",
+      "doing": "Chairing",
+      "watched": false
+     },
+     {
+      "id": "s38",
+      "name": "senator-38",
+      "runtime": "agy",
+      "mood": "waiting",
+      "chair": false,
+      "sessionId": "demo-s38",
+      "watched": false
+     }
+    ],
+    "waiting": []
+   },
+   {
+    "name": "committee-20",
+    "senators": [
+     {
+      "id": "s39",
+      "name": "senator-39",
+      "runtime": "claude",
+      "mood": "idle",
+      "chair": true,
+      "sessionId": "demo-s39",
+      "doing": "Chairing",
+      "watched": false
+     },
+     {
+      "id": "s40",
+      "name": "senator-40",
+      "runtime": "claude",
+      "mood": "paused",
+      "chair": false,
+      "sessionId": "demo-s40",
+      "watched": false
+     },
+     {
+      "id": "s41",
+      "name": "senator-41",
+      "runtime": "codex",
+      "mood": "stopped",
+      "chair": false,
+      "sessionId": "demo-s41",
+      "watched": false
+     }
+    ],
+    "waiting": []
+   },
+   {
+    "name": "committee-21",
+    "senators": [
+     {
+      "id": "s42",
+      "name": "senator-42",
+      "runtime": "agy",
+      "mood": "working",
+      "chair": true,
+      "sessionId": "demo-s42",
+      "doing": "Chairing",
+      "watched": false
+     }
+    ],
+    "waiting": [
+     {
+      "committee": "committee-21",
+      "root": 22,
+      "title": "Question"
+     }
+    ]
+   },
+   {
+    "name": "committee-22",
+    "senators": [
+     {
+      "id": "s43",
+      "name": "senator-43",
+      "runtime": "claude",
+      "mood": "stopped",
+      "chair": true,
+      "sessionId": "demo-s43",
+      "doing": "Chairing",
+      "watched": false
+     },
+     {
+      "id": "s44",
+      "name": "senator-44",
+      "runtime": "claude",
+      "mood": "idle",
+      "chair": false,
+      "sessionId": "demo-s44",
+      "watched": false
+     }
+    ],
+    "waiting": []
+   },
+   {
+    "name": "committee-23",
+    "senators": [
+     {
+      "id": "s45",
+      "name": "senator-45",
+      "runtime": "codex",
+      "mood": "idle",
+      "chair": true,
+      "sessionId": "demo-s45",
+      "doing": "Chairing",
+      "watched": false
+     },
+     {
+      "id": "s46",
+      "name": "senator-46",
+      "runtime": "agy",
+      "mood": "idle",
+      "chair": false,
+      "sessionId": "demo-s46",
+      "watched": false
+     },
+     {
+      "id": "s47",
+      "name": "senator-47",
+      "runtime": "claude",
+      "mood": "paused",
+      "chair": false,
+      "sessionId": "demo-s47",
+      "watched": false
+     }
+    ],
+    "waiting": []
+   },
+   {
+    "name": "committee-24",
+    "senators": [
+     {
+      "id": "s48",
+      "name": "senator-48",
+      "runtime": "claude",
+      "mood": "working",
+      "chair": true,
+      "sessionId": "demo-s48",
+      "doing": "Chairing",
+      "watched": false
+     }
+    ],
+    "waiting": []
+   },
+   {
+    "name": "committee-25",
+    "senators": [
+     {
+      "id": "s49",
+      "name": "senator-49",
+      "runtime": "codex",
+      "mood": "paused",
+      "chair": true,
+      "sessionId": "demo-s49",
+      "doing": "Chairing",
+      "watched": false
+     },
+     {
+      "id": "s50",
+      "name": "senator-50",
+      "runtime": "agy",
+      "mood": "stopped",
+      "chair": false,
+      "sessionId": "demo-s50",
+      "watched": false
+     }
+    ],
+    "waiting": []
+   },
+   {
+    "name": "committee-26",
+    "senators": [
+     {
+      "id": "s51",
+      "name": "senator-51",
+      "runtime": "claude",
+      "mood": "working",
+      "chair": true,
+      "sessionId": "demo-s51",
+      "doing": "Chairing",
+      "watched": false
+     },
+     {
+      "id": "s52",
+      "name": "senator-52",
+      "runtime": "claude",
+      "mood": "idle",
+      "chair": false,
+      "sessionId": "demo-s52",
+      "watched": false
+     },
+     {
+      "id": "s53",
+      "name": "senator-53",
+      "runtime": "codex",
+      "mood": "idle",
+      "chair": false,
+      "sessionId": "demo-s53",
+      "watched": false
+     }
+    ],
+    "waiting": []
+   },
+   {
+    "name": "committee-27",
+    "senators": [
+     {
+      "id": "s54",
+      "name": "senator-54",
+      "runtime": "agy",
+      "mood": "waiting",
+      "chair": true,
+      "sessionId": "demo-s54",
+      "doing": "Chairing",
+      "watched": false
+     }
+    ],
+    "waiting": []
+   },
+   {
+    "name": "committee-28",
+    "senators": [
+     {
+      "id": "s55",
+      "name": "senator-55",
+      "runtime": "claude",
+      "mood": "idle",
+      "chair": true,
+      "sessionId": "demo-s55",
+      "doing": "Chairing",
+      "watched": false
+     },
+     {
+      "id": "s56",
+      "name": "senator-56",
+      "runtime": "claude",
+      "mood": "paused",
+      "chair": false,
+      "sessionId": "demo-s56",
+      "watched": false
+     }
+    ],
+    "waiting": [
+     {
+      "committee": "committee-28",
+      "root": 29,
+      "title": "Question"
+     }
+    ]
+   },
+   {
+    "name": "committee-29",
+    "senators": [
+     {
+      "id": "s57",
+      "name": "senator-57",
+      "runtime": "codex",
+      "mood": "working",
+      "chair": true,
+      "sessionId": "demo-s57",
+      "doing": "Chairing",
+      "watched": false
+     },
+     {
+      "id": "s58",
+      "name": "senator-58",
+      "runtime": "agy",
+      "mood": "working",
+      "chair": false,
+      "sessionId": "demo-s58",
+      "watched": false
+     },
+     {
+      "id": "s59",
+      "name": "senator-59",
+      "runtime": "claude",
+      "mood": "idle",
+      "chair": false,
+      "sessionId": "demo-s59",
+      "watched": false
+     }
+    ],
+    "waiting": []
+   }
+  ],
+  "hall": {
+   "secretary": {
+    "id": "claude-secretary",
+    "name": "secretary",
+    "runtime": "claude",
+    "mood": "working",
+    "chair": false,
+    "sessionId": "demo-claude-secretary",
+    "doing": "Working the docket",
+    "watched": false
+   },
+   "docket": 3
+  }
+ },
+ "steps": [
+  {
+   "at": 0,
+   "events": [
+    {
+     "kind": "message",
+     "from": "s0",
+     "to": "s17",
+     "thread": {
+      "committee": "committee-0",
+      "root": 100,
+      "title": "Hello"
+     },
+     "line": "Hello from senator 0"
+    },
+    {
+     "kind": "message",
+     "from": "s4",
+     "to": "s21",
+     "thread": {
+      "committee": "committee-2",
+      "root": 101,
+      "title": "Hello"
+     },
+     "line": "Hello from senator 4"
+    },
+    {
+     "kind": "message",
+     "from": "s8",
+     "to": "s25",
+     "thread": {
+      "committee": "committee-4",
+      "root": 102,
+      "title": "Hello"
+     },
+     "line": "Hello from senator 8"
+    },
+    {
+     "kind": "message",
+     "from": "s12",
+     "to": "s29",
+     "thread": {
+      "committee": "committee-6",
+      "root": 103,
+      "title": "Hello"
+     },
+     "line": "Hello from senator 12"
+    },
+    {
+     "kind": "message",
+     "from": "s16",
+     "to": "s33",
+     "thread": {
+      "committee": "committee-8",
+      "root": 104,
+      "title": "Hello"
+     },
+     "line": "Hello from senator 16"
+    },
+    {
+     "kind": "message",
+     "from": "s20",
+     "to": "s37",
+     "thread": {
+      "committee": "committee-10",
+      "root": 105,
+      "title": "Hello"
+     },
+     "line": "Hello from senator 20"
+    },
+    {
+     "kind": "message",
+     "from": "s24",
+     "to": "s41",
+     "thread": {
+      "committee": "committee-12",
+      "root": 106,
+      "title": "Hello"
+     },
+     "line": "Hello from senator 24"
+    },
+    {
+     "kind": "message",
+     "from": "s28",
+     "to": "s45",
+     "thread": {
+      "committee": "committee-14",
+      "root": 107,
+      "title": "Hello"
+     },
+     "line": "Hello from senator 28"
+    },
+    {
+     "kind": "message",
+     "from": "s32",
+     "to": "s49",
+     "thread": {
+      "committee": "committee-16",
+      "root": 108,
+      "title": "Hello"
+     },
+     "line": "Hello from senator 32"
+    },
+    {
+     "kind": "message",
+     "from": "s36",
+     "to": "s53",
+     "thread": {
+      "committee": "committee-18",
+      "root": 109,
+      "title": "Hello"
+     },
+     "line": "Hello from senator 36"
+    },
+    {
+     "kind": "message",
+     "from": "s40",
+     "to": "s57",
+     "thread": {
+      "committee": "committee-20",
+      "root": 110,
+      "title": "Hello"
+     },
+     "line": "Hello from senator 40"
+    },
+    {
+     "kind": "message",
+     "from": "s44",
+     "to": "s3",
+     "thread": {
+      "committee": "committee-22",
+      "root": 111,
+      "title": "Hello"
+     },
+     "line": "Hello from senator 44"
+    },
+    {
+     "kind": "tool",
+     "senator": "s0",
+     "tool": "bash"
+    },
+    {
+     "kind": "tool",
+     "senator": "s9",
+     "tool": "edit"
+    },
+    {
+     "kind": "tool",
+     "senator": "s18",
+     "tool": "read"
+    },
+    {
+     "kind": "tool",
+     "senator": "s27",
+     "tool": "grep"
+    },
+    {
+     "kind": "tool",
+     "senator": "s36",
+     "tool": "mcp"
+    },
+    {
+     "kind": "tool",
+     "senator": "s45",
+     "tool": "web"
+    }
+   ]
+  }
+ ],
+ "loop": 16000
+}

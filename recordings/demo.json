@@ -1,0 +1,947 @@
+{
+ "version": 1,
+ "snapshot": {
+  "person": "alice",
+  "history": 214,
+  "elders": [
+   {
+    "id": "codex-flaky",
+    "name": "flaky",
+    "runtime": "codex",
+    "idle": 7200,
+    "sessionId": "demo-past-flaky",
+    "committee": "senate"
+   },
+   {
+    "id": "claude-deploy",
+    "name": "deploy",
+    "runtime": "claude",
+    "idle": 259200,
+    "sessionId": "demo-past-deploy",
+    "committee": "infra"
+   },
+   {
+    "id": "agy-oncall",
+    "name": "oncall",
+    "runtime": "agy",
+    "idle": 1814400,
+    "sessionId": "demo-past-oncall",
+    "committee": "infra"
+   },
+   {
+    "id": "claude-scout",
+    "name": "scout",
+    "runtime": "claude",
+    "idle": 21600,
+    "sessionId": "demo-past-scout",
+    "committee": "web"
+   }
+  ],
+  "projects": [
+   {
+    "id": "senate",
+    "name": "senate",
+    "releases": [
+     {
+      "name": "v0.10.0",
+      "date": "Nov 23",
+      "merges": 5,
+      "plaques": [
+       "app icon & sidebar",
+       "sessions in the app"
+      ]
+     },
+     {
+      "name": "v0.11.0",
+      "date": "Nov 24",
+      "merges": 10,
+      "plaques": [
+       "Markdown as a block tree",
+       "Antigravity timeline",
+       "desk forward"
+      ]
+     },
+     {
+      "name": "v0.12.0",
+      "date": "Nov 24",
+      "merges": 19,
+      "plaques": [
+       "remote hardening",
+       "accessibility audit",
+       "Secretary row"
+      ]
+     },
+     {
+      "name": "v0.12.2",
+      "date": "Nov 24",
+      "merges": 7,
+      "plaques": [
+       "committee archive",
+       "app polish"
+      ]
+     },
+     {
+      "name": "v0.12.3",
+      "date": "Nov 24",
+      "merges": 8,
+      "plaques": [
+       "show archived",
+       "History in the app"
+      ]
+     }
+    ],
+    "unreleased": {
+     "merges": 8,
+     "plaques": [
+      "senate desk",
+      "watch finder",
+      "profile stats"
+     ]
+    },
+    "committees": [
+     "senate",
+     "docs"
+    ]
+   },
+   {
+    "id": "ledger",
+    "name": "ledger-app",
+    "releases": [
+     {
+      "name": "v1.4.0",
+      "merges": 12,
+      "plaques": [
+       "refund tables"
+      ]
+     },
+     {
+      "name": "v1.5.0",
+      "merges": 6,
+      "plaques": [
+       "schema v3"
+      ]
+     }
+    ],
+    "unreleased": {
+     "merges": 3,
+     "plaques": [
+      "migration window"
+     ]
+    },
+    "committees": [
+     "ledger"
+    ]
+   },
+   {
+    "id": "web",
+    "name": "storefront",
+    "releases": [
+     {
+      "name": "2026.10",
+      "merges": 9,
+      "plaques": [
+       "colour tokens"
+      ]
+     },
+     {
+      "name": "2026.11",
+      "merges": 14,
+      "plaques": [
+       "new checkout"
+      ]
+     }
+    ],
+    "committees": [
+     "web",
+     "ios-duo"
+    ]
+   }
+  ],
+  "links": {
+   "parent": {
+    "name": "/acme",
+    "up": true
+   },
+   "children": [
+    {
+     "name": "ci-runner",
+     "up": true
+    },
+    {
+     "name": "bob-desk",
+     "up": false
+    }
+   ],
+   "remotes": [
+    {
+     "name": "studio-mini",
+     "up": true
+    }
+   ]
+  },
+  "approvals": [
+   {
+    "senator": "claude-app",
+    "ask": "Bash: cargo publish -p senated",
+    "person": "alice"
+   }
+  ],
+  "archived": [
+   {
+    "name": "legacy-api",
+    "project": "senate",
+    "closed": "Oct 2",
+    "shipped": [
+     "the first daemon",
+     "SSE streams",
+     "the CLI's ask"
+    ]
+   }
+  ],
+  "committees": [
+   {
+    "name": "senate",
+    "senators": [
+     {
+      "id": "claude-chair",
+      "name": "chair",
+      "runtime": "claude",
+      "mood": "working",
+      "chair": true,
+      "sessionId": "demo-claude-chair",
+      "doing": "Town in the Works style",
+      "watched": false,
+      "card": {
+       "hat": "top",
+       "accessory": "glasses",
+       "deskItem": "cat",
+       "body": "round",
+       "hairColour": 6
+      }
+     },
+     {
+      "id": "claude-town",
+      "name": "town",
+      "runtime": "claude",
+      "mood": "working",
+      "chair": false,
+      "sessionId": "demo-claude-town",
+      "doing": "Phaser scene",
+      "watched": false
+     },
+     {
+      "id": "claude-app",
+      "name": "app",
+      "runtime": "claude",
+      "mood": "waiting",
+      "chair": false,
+      "sessionId": "demo-claude-app",
+      "doing": "Publishing senated",
+      "watched": false
+     },
+     {
+      "id": "codex-timeline",
+      "name": "timeline",
+      "runtime": "codex",
+      "mood": "idle",
+      "chair": false,
+      "sessionId": "demo-codex-timeline",
+      "watched": false
+     }
+    ],
+    "waiting": [
+     {
+      "committee": "senate",
+      "root": 2577,
+      "title": "Unknown committee in ask",
+      "asker": "app"
+     }
+    ]
+   },
+   {
+    "name": "ledger",
+    "card": {
+     "roof": "dome",
+     "material": "brick",
+     "landmark": "windmill",
+     "wall": 1,
+     "trim": 3,
+     "garden": "pond",
+     "plants": [
+      "blossom",
+      "birch",
+      "flowers"
+     ]
+    },
+    "senators": [
+     {
+      "id": "codex-ledger",
+      "name": "ledger",
+      "runtime": "codex",
+      "mood": "idle",
+      "chair": true,
+      "sessionId": "demo-codex-ledger",
+      "watched": false
+     },
+     {
+      "id": "claude-migrate",
+      "name": "migrate",
+      "runtime": "claude",
+      "mood": "working",
+      "chair": false,
+      "sessionId": "demo-claude-migrate",
+      "doing": "Migrate the refund tables",
+      "watched": true
+     },
+     {
+      "id": "agy-schema",
+      "name": "schema",
+      "runtime": "agy",
+      "mood": "paused",
+      "chair": false,
+      "sessionId": "demo-agy-schema",
+      "watched": false
+     }
+    ]
+   },
+   {
+    "name": "web",
+    "senators": [
+     {
+      "id": "claude-web",
+      "name": "web",
+      "runtime": "claude",
+      "mood": "idle",
+      "chair": true,
+      "sessionId": "demo-claude-web",
+      "watched": false
+     },
+     {
+      "id": "agy-css",
+      "name": "css",
+      "runtime": "agy",
+      "mood": "working",
+      "chair": false,
+      "sessionId": "demo-agy-css",
+      "doing": "Colour tokens",
+      "watched": false
+     }
+    ]
+   },
+   {
+    "name": "ios-duo",
+    "senators": [
+     {
+      "id": "codex-ios",
+      "name": "ios",
+      "runtime": "codex",
+      "mood": "working",
+      "chair": true,
+      "sessionId": "demo-codex-ios",
+      "doing": "Sheet presentation",
+      "watched": false
+     },
+     {
+      "id": "claude-modal",
+      "name": "modal",
+      "runtime": "claude",
+      "mood": "idle",
+      "chair": false,
+      "sessionId": "demo-claude-modal",
+      "watched": false
+     }
+    ],
+    "waiting": [
+     {
+      "committee": "ios-duo",
+      "root": 412,
+      "title": "Ship the modal?",
+      "asker": "ios"
+     }
+    ]
+   },
+   {
+    "name": "docs",
+    "senators": [
+     {
+      "id": "claude-docs",
+      "name": "scribe",
+      "runtime": "claude",
+      "mood": "working",
+      "chair": true,
+      "sessionId": "demo-claude-docs",
+      "doing": "Release notes",
+      "watched": false
+     }
+    ]
+   }
+  ],
+  "hall": {
+   "secretary": {
+    "id": "claude-secretary",
+    "name": "secretary",
+    "runtime": "claude",
+    "mood": "working",
+    "chair": false,
+    "sessionId": "demo-claude-secretary",
+    "doing": "Working the docket",
+    "watched": false
+   },
+   "docket": 3
+  }
+ },
+ "steps": [
+  {
+   "at": 0,
+   "events": [
+    {
+     "kind": "message",
+     "from": "claude-town",
+     "to": "claude-chair",
+     "thread": {
+      "committee": "senate",
+      "root": 2585,
+      "title": "Town page"
+     },
+     "line": "The Works are ready for a look"
+    },
+    {
+     "kind": "tool",
+     "senator": "claude-town",
+     "tool": "bash",
+     "target": "npm run build"
+    },
+    {
+     "kind": "tool",
+     "senator": "claude-migrate",
+     "tool": "edit",
+     "target": "migrations/0042_split_ledger.sql"
+    }
+   ]
+  },
+  {
+   "at": 900,
+   "events": [
+    {
+     "kind": "message",
+     "from": "codex-ledger",
+     "to": "claude-web",
+     "thread": {
+      "committee": "ledger",
+      "root": 88,
+      "title": "Shared schema"
+     },
+     "line": "The schema moved to v3"
+    },
+    {
+     "kind": "tool",
+     "senator": "agy-css",
+     "tool": "web",
+     "target": "contrast guidelines"
+    },
+    {
+     "kind": "tool",
+     "senator": "claude-chair",
+     "tool": "mcp",
+     "target": "senate · status"
+    }
+   ]
+  },
+  {
+   "at": 1800,
+   "events": [
+    {
+     "kind": "message",
+     "from": "claude-docs",
+     "to": "agy-schema",
+     "thread": {
+      "committee": "docs",
+      "root": 9,
+      "title": "Release notes"
+     },
+     "line": "Release notes need the new tables",
+     "held": "schema is paused"
+    },
+    {
+     "kind": "tool",
+     "senator": "codex-ios",
+     "tool": "read",
+     "target": "Sheet.swift"
+    },
+    {
+     "kind": "tool",
+     "senator": "claude-docs",
+     "tool": "grep",
+     "target": "\"refund\" in docs/"
+    }
+   ]
+  },
+  {
+   "at": 3000,
+   "events": [
+    {
+     "kind": "message",
+     "from": "reviewer",
+     "to": "claude-migrate",
+     "thread": {
+      "committee": "ledger",
+      "root": 90,
+      "title": "Review"
+     },
+     "line": "Can you check the refund policy?"
+    },
+    {
+     "kind": "link",
+     "link": "remote",
+     "name": "studio-mini"
+    }
+   ]
+  },
+  {
+   "at": 5600,
+   "events": [
+    {
+     "kind": "answered",
+     "thread": {
+      "committee": "ledger",
+      "root": 77,
+      "title": "Migration order"
+     },
+     "a": "claude-migrate",
+     "b": "codex-ledger"
+    }
+   ]
+  },
+  {
+   "at": 8000,
+   "events": [
+    {
+     "kind": "signed",
+     "senator": "claude-app"
+    }
+   ]
+  },
+  {
+   "at": 10600,
+   "events": [
+    {
+     "kind": "release",
+     "thread": {
+      "committee": "docs",
+      "root": 9,
+      "title": "Release notes"
+     }
+    }
+   ]
+  },
+  {
+   "at": 12100,
+   "state": {
+    "person": "alice",
+    "history": 214,
+    "elders": [
+     {
+      "id": "codex-flaky",
+      "name": "flaky",
+      "runtime": "codex",
+      "idle": 7200,
+      "sessionId": "demo-past-flaky",
+      "committee": "senate"
+     },
+     {
+      "id": "claude-deploy",
+      "name": "deploy",
+      "runtime": "claude",
+      "idle": 259200,
+      "sessionId": "demo-past-deploy",
+      "committee": "infra"
+     },
+     {
+      "id": "agy-oncall",
+      "name": "oncall",
+      "runtime": "agy",
+      "idle": 1814400,
+      "sessionId": "demo-past-oncall",
+      "committee": "infra"
+     },
+     {
+      "id": "claude-scout",
+      "name": "scout",
+      "runtime": "claude",
+      "idle": 21600,
+      "sessionId": "demo-past-scout",
+      "committee": "web"
+     }
+    ],
+    "projects": [
+     {
+      "id": "senate",
+      "name": "senate",
+      "releases": [
+       {
+        "name": "v0.10.0",
+        "date": "Nov 23",
+        "merges": 5,
+        "plaques": [
+         "app icon & sidebar",
+         "sessions in the app"
+        ]
+       },
+       {
+        "name": "v0.11.0",
+        "date": "Nov 24",
+        "merges": 10,
+        "plaques": [
+         "Markdown as a block tree",
+         "Antigravity timeline",
+         "desk forward"
+        ]
+       },
+       {
+        "name": "v0.12.0",
+        "date": "Nov 24",
+        "merges": 19,
+        "plaques": [
+         "remote hardening",
+         "accessibility audit",
+         "Secretary row"
+        ]
+       },
+       {
+        "name": "v0.12.2",
+        "date": "Nov 24",
+        "merges": 7,
+        "plaques": [
+         "committee archive",
+         "app polish"
+        ]
+       },
+       {
+        "name": "v0.12.3",
+        "date": "Nov 24",
+        "merges": 8,
+        "plaques": [
+         "show archived",
+         "History in the app"
+        ]
+       }
+      ],
+      "unreleased": {
+       "merges": 8,
+       "plaques": [
+        "senate desk",
+        "watch finder",
+        "profile stats"
+       ]
+      },
+      "committees": [
+       "senate",
+       "docs"
+      ]
+     },
+     {
+      "id": "ledger",
+      "name": "ledger-app",
+      "releases": [
+       {
+        "name": "v1.4.0",
+        "merges": 12,
+        "plaques": [
+         "refund tables"
+        ]
+       },
+       {
+        "name": "v1.5.0",
+        "merges": 6,
+        "plaques": [
+         "schema v3"
+        ]
+       }
+      ],
+      "unreleased": {
+       "merges": 3,
+       "plaques": [
+        "migration window"
+       ]
+      },
+      "committees": [
+       "ledger"
+      ]
+     },
+     {
+      "id": "web",
+      "name": "storefront",
+      "releases": [
+       {
+        "name": "2026.10",
+        "merges": 9,
+        "plaques": [
+         "colour tokens"
+        ]
+       },
+       {
+        "name": "2026.11",
+        "merges": 14,
+        "plaques": [
+         "new checkout"
+        ]
+       }
+      ],
+      "committees": [
+       "web",
+       "ios-duo"
+      ]
+     }
+    ],
+    "links": {
+     "parent": {
+      "name": "/acme",
+      "up": true
+     },
+     "children": [
+      {
+       "name": "ci-runner",
+       "up": true
+      },
+      {
+       "name": "bob-desk",
+       "up": false
+      }
+     ],
+     "remotes": [
+      {
+       "name": "studio-mini",
+       "up": true
+      }
+     ]
+    },
+    "approvals": [
+     {
+      "senator": "claude-app",
+      "ask": "Bash: cargo publish -p senated",
+      "person": "alice"
+     }
+    ],
+    "archived": [
+     {
+      "name": "legacy-api",
+      "project": "senate",
+      "closed": "Oct 2",
+      "shipped": [
+       "the first daemon",
+       "SSE streams",
+       "the CLI's ask"
+      ]
+     }
+    ],
+    "committees": [
+     {
+      "name": "senate",
+      "senators": [
+       {
+        "id": "claude-chair",
+        "name": "chair",
+        "runtime": "claude",
+        "mood": "working",
+        "chair": true,
+        "sessionId": "demo-claude-chair",
+        "doing": "Town in the Works style",
+        "watched": false,
+        "card": {
+         "hat": "top",
+         "accessory": "glasses",
+         "deskItem": "cat",
+         "body": "round",
+         "hairColour": 6
+        }
+       },
+       {
+        "id": "claude-town",
+        "name": "town",
+        "runtime": "claude",
+        "mood": "working",
+        "chair": false,
+        "sessionId": "demo-claude-town",
+        "doing": "Phaser scene",
+        "watched": false
+       },
+       {
+        "id": "claude-app",
+        "name": "app",
+        "runtime": "claude",
+        "mood": "waiting",
+        "chair": false,
+        "sessionId": "demo-claude-app",
+        "doing": "Publishing senated",
+        "watched": false
+       },
+       {
+        "id": "codex-timeline",
+        "name": "timeline",
+        "runtime": "codex",
+        "mood": "idle",
+        "chair": false,
+        "sessionId": "demo-codex-timeline",
+        "watched": false
+       }
+      ],
+      "waiting": [
+       {
+        "committee": "senate",
+        "root": 2577,
+        "title": "Unknown committee in ask",
+        "asker": "app"
+       }
+      ]
+     },
+     {
+      "name": "ledger",
+      "card": {
+       "roof": "dome",
+       "material": "brick",
+       "landmark": "windmill",
+       "wall": 1,
+       "trim": 3,
+       "garden": "pond",
+       "plants": [
+        "blossom",
+        "birch",
+        "flowers"
+       ]
+      },
+      "senators": [
+       {
+        "id": "codex-ledger",
+        "name": "ledger",
+        "runtime": "codex",
+        "mood": "idle",
+        "chair": true,
+        "sessionId": "demo-codex-ledger",
+        "watched": false
+       },
+       {
+        "id": "claude-migrate",
+        "name": "migrate",
+        "runtime": "claude",
+        "mood": "working",
+        "chair": false,
+        "sessionId": "demo-claude-migrate",
+        "doing": "Migrate the refund tables",
+        "watched": true
+       },
+       {
+        "id": "agy-schema",
+        "name": "schema",
+        "runtime": "agy",
+        "mood": "paused",
+        "chair": false,
+        "sessionId": "demo-agy-schema",
+        "watched": false
+       }
+      ]
+     },
+     {
+      "name": "web",
+      "senators": [
+       {
+        "id": "claude-web",
+        "name": "web",
+        "runtime": "claude",
+        "mood": "idle",
+        "chair": true,
+        "sessionId": "demo-claude-web",
+        "watched": false
+       },
+       {
+        "id": "agy-css",
+        "name": "css",
+        "runtime": "agy",
+        "mood": "working",
+        "chair": false,
+        "sessionId": "demo-agy-css",
+        "doing": "Colour tokens",
+        "watched": false
+       }
+      ]
+     },
+     {
+      "name": "ios-duo",
+      "senators": [
+       {
+        "id": "codex-ios",
+        "name": "ios",
+        "runtime": "codex",
+        "mood": "working",
+        "chair": true,
+        "sessionId": "demo-codex-ios",
+        "doing": "Sheet presentation",
+        "watched": false
+       },
+       {
+        "id": "claude-modal",
+        "name": "modal",
+        "runtime": "claude",
+        "mood": "idle",
+        "chair": false,
+        "sessionId": "demo-claude-modal",
+        "watched": false
+       }
+      ],
+      "waiting": [
+       {
+        "committee": "ios-duo",
+        "root": 412,
+        "title": "Ship the modal?",
+        "asker": "ios"
+       }
+      ]
+     },
+     {
+      "name": "docs",
+      "senators": [
+       {
+        "id": "claude-docs",
+        "name": "scribe",
+        "runtime": "claude",
+        "mood": "working",
+        "chair": true,
+        "sessionId": "demo-claude-docs",
+        "doing": "Release notes",
+        "watched": false
+       }
+      ]
+     },
+     {
+      "name": "release-train",
+      "senators": [
+       {
+        "id": "codex-release",
+        "name": "release",
+        "runtime": "codex",
+        "mood": "working",
+        "chair": true,
+        "sessionId": "demo-codex-release",
+        "doing": "Cutting 0.13.0",
+        "watched": false
+       }
+      ]
+     }
+    ],
+    "hall": {
+     "secretary": {
+      "id": "claude-secretary",
+      "name": "secretary",
+      "runtime": "claude",
+      "mood": "working",
+      "chair": false,
+      "sessionId": "demo-claude-secretary",
+      "doing": "Working the docket",
+      "watched": false
+     },
+     "docket": 3
+    }
+   }
+  }
+ ],
+ "loop": 28100
+}
