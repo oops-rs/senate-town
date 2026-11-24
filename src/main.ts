@@ -265,6 +265,10 @@ const api = {
   },
   /** Hide every object of a kind (measurement: what it costs to draw). */
   hide(type: string) { for (const o of scene.children.list) if (o.type === type) (o as unknown as { setVisible(v: boolean): void }).setVisible(false); },
+  /** Stop drawing one kind of thing (measurement). */
+  ablate(kind: string) { scene.ablate(kind); },
+  /** Draw at another backing resolution (measurement: what full resolution costs). */
+  resolution(d: number) { const cam = scene.cameras.main, c = cam.midPoint.clone(), z = cam.zoom * d / (game.scale.width / innerWidth); game.scale.resize(innerWidth * d, innerHeight * d); game.scale.setZoom(1 / d); cam.setZoom(z); cam.centerOn(c.x, c.y); },
   textures() { return scene.textures.getTextureKeys().filter((k) => k.startsWith("walk-")); },
 };
 (window as unknown as { town: typeof api }).town = api;

@@ -1410,6 +1410,27 @@ export class Works extends Phaser.Scene {
     return false;
   }
 
+  /**
+   * Measurement only: stop drawing one kind of thing, to see what it costs
+   * (people, houses, the ground, the glows, the light overlay, everything).
+   */
+  ablate(kind: string) {
+    const hide = (o: { setVisible(v: boolean): unknown } | undefined) => o?.setVisible(false);
+    const people = () => {
+      for (const c of this.life?.civilians ?? []) hide(c.p.sprite);
+      for (const e of this.elderPeople.values()) hide(e.p.sprite);
+      for (const o of this.outside.values()) hide(o.p.sprite);
+    };
+    switch (kind) {
+      case "people": people(); break;
+      case "houses": for (const s of this.shops.values()) hide(s.root); break;
+      case "ground": hide(this.baked); for (const o of this.children.list) if (o.type === "TilemapLayer" || o.type === "Graphics") hide(o as Phaser.GameObjects.Graphics); break;
+      case "glow": for (const g of this.glows) hide(g); for (const l of this.lamps) hide(l); this.lit.setVisible(false); break;
+      case "wash": hide(this.wash); break;
+      case "all": for (const o of this.children.list) hide(o as Phaser.GameObjects.Image); break;
+    }
+  }
+
   stats() {
     const recent = this.ticks.filter((t) => t > performance.now() - 2000).length / 2;
     return { fps: Math.round(recent), zoom: Math.round(this.cameras.main.zoom * 100) / 100, sleeping: !this.game.loop.running, shops: this.shops.size, busy: this.busy,
