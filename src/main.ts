@@ -174,5 +174,9 @@ if (native) {
   const start = () => use(params.get("source") === "recorded" && file ? new RecordedSource(file) : new ScriptedSource(big ? "large" : "small", !params.has("once")));
   setTimeout(start, params.has("now") ? 200 : 1200);
   const into = params.get("enter");
-  if (into) setTimeout(() => scene.enter(into), 600);
+  if (into) {
+    let tries = 0;
+    const tryEnter = () => { if (scene.stats().shops > 0 || ++tries > 40) scene.enter(into); else setTimeout(tryEnter, 150); };
+    setTimeout(tryEnter, 300);
+  }
 }

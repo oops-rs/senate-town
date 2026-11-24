@@ -99,10 +99,10 @@ app features can share the same card later.
 
 ## Where Town code may live
 
-- Town stays the TypeScript page in the app (`apps/macos/TownWeb` →
-  `Senate/Web/town`).
-- If Rust is ever needed (it isn't today), it goes in an app-only crate:
-  `crates/senate-town`, `publish = false`, depended on only by
-  `senate-app-core`.
+- Town is the top-level package `town/` (TypeScript, its own build, tests
+  and licence). The app consumes only its built page, copied into
+  `apps/macos/Senate/Web/town` by `apps/macos/scripts/sync-town.sh`.
+- Town reads cards through the observe API like any other client; nothing
+  of Town lives in the CLI, daemon, server or core crates.
 - The card above is the only thing the core gains. It's generic, so it
   isn't Town code.
