@@ -91,10 +91,30 @@ place), no weather moves, and the loop sleeps when still.
 `apps/macos/scripts/sync-town.sh` builds this package and copies `dist/`
 into `apps/macos/Senate/Web/town/`, which is committed so Xcode never needs
 Node. `SENATE_APP_TOWN_WEB=1` shows the page in the Town tab, the app being
-its shell; `SENATE_APP_TOWN_DEMO=1` (or `large`) loads it with `?demo=…`
-so its own dev shell plays the demo instead; `SENATE_APP_TOWN_TIME`,
-`SENATE_APP_TOWN_WEATHER` and `SENATE_APP_TOWN_SEASON` fix the demo's time of
-day, weather and season.
+its shell (`Senate/Town/TownWebPage.swift`):
+
+- Live data comes only from the Senate's Observe API, through a native
+  client (`ObserveClient.swift`). The first time, the Town tab offers one
+  button that creates a grant (metadata, every committee, this Senate's
+  direct links; the person-only path `senate observe token create` uses)
+  and keeps it in the Keychain. The page never sees the bearer.
+- Off screen the subscription is released; back on screen it starts again
+  from a fresh snapshot.
+- Clicks: `open {url}` and clicked `senate:` links go to the app's one
+  router (`store.links`), unchanged.
+- `SENATE_APP_TOWN_DEMO=1` (or `large`): the app replays this package's demo
+  recording through the same contract. `SENATE_APP_TOWN_TIME`,
+  `SENATE_APP_TOWN_WEATHER` and `SENATE_APP_TOWN_SEASON` fix its time of day,
+  weather and season.
+
+## In the reference browser shell
+
+`packages/senate-scene-host/browser/index.html` hosts any scene folder. Serve
+the repository root on a loopback port, start an Observe source with that
+origin, e.g. `senate observe replay --demo --origin http://127.0.0.1:8766`
+(or `senate observe replay town/recordings/demo.ndjson …`), paste its URL and
+token, and choose `town/dist` as the scene folder. The page loads nothing
+(the map and tiles are inside `town.js`), as that shell's policy requires.
 
 ## Where things live
 
