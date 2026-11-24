@@ -387,6 +387,31 @@ export function sails(scene: Phaser.Scene): string {
 }
 
 /** A puff of chimney smoke; a raindrop; a cloud's shadow. */
+/**
+ * A house's front garden as one piece of art (not shapes drawn every frame,
+ * which would break the batch): `w` the house's width; drawn so its centre
+ * sits at (5, h/2 + 15) under the house.
+ */
+export function gardenArt(scene: Phaser.Scene, kind: string, w: number): string {
+  const key = `garden-${kind}-${w}`;
+  const W = w + 80, ox = w / 2 + 35, oy = -2; // local (x, y - h/2) → texture (x + ox, y' - oy)
+  make(scene, key, W, 34, (g) => {
+    const X = (x: number) => x + ox, Y = (dy: number) => dy - oy;
+    if (kind === "flowers") for (let i = 0; i < 9; i++) g.fillStyle([0xffb7c5, 0xfff2a8, 0xffffff, 0xd6bfe6][i % 4]!, 1).fillCircle(X(-w / 2 + 14 + i * 8), Y(12), 3.5);
+    if (kind === "hedge") g.fillStyle(PALETTE.leafDark, 1).fillRoundedRect(X(-w / 2), Y(6), w * 0.32, 12, 6).fillRoundedRect(X(w / 2 - w * 0.32), Y(6), w * 0.32, 12, 6);
+    if (kind === "rocks") for (let i = 0; i < 4; i++) g.fillStyle(PALETTE.stoneDark, 1).fillEllipse(X(w / 2 - 20 - i * 14), Y(12), 10, 7);
+    if (kind === "pond") g.fillStyle(PALETTE.water, 1).fillEllipse(X(w / 2 + 10), Y(16), 46, 18).lineStyle(2, INK, 1).strokeEllipse(X(w / 2 + 10), Y(16), 46, 18);
+  });
+  return key;
+}
+
+/** A sill (the bays' foot), snow along a roof: plain bars as art. */
+export function bar(scene: Phaser.Scene, w: number, h: number, fill: number, stroke?: number, lw = 2): string {
+  const key = `bar-${w}-${h}-${fill.toString(16)}-${stroke?.toString(16) ?? ""}-${lw}`;
+  make(scene, key, w + lw, h + lw, (g) => roundRect(g, lw / 2, lw / 2, w, h, 0, fill, stroke, lw));
+  return key;
+}
+
 export function weatherArt(scene: Phaser.Scene) {
   make(scene, "puff", 16, 16, (g) => g.fillStyle(0xffffff, 1).fillCircle(8, 8, 7));
   make(scene, "drop", 3, 12, (g) => g.fillStyle(0xbcd6f0, 0.9).fillRoundedRect(0.5, 0, 2, 12, 1));

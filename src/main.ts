@@ -113,6 +113,10 @@ const game = new Phaser.Game({
   audio: { noAudio: true },
   disableContextMenu: true,
   antialias: true,
+  // Art is drawn at 2–4× its shown size; seen from afar it is sampled from
+  // smaller copies (mipmaps), which is sharper and far cheaper for the GPU
+  // than reading the whole large texture for every few pixels.
+  render: { mipmapFilter: "LINEAR_MIPMAP_LINEAR", mipmapRegeneration: true } as Phaser.Types.Core.RenderConfig,
   loader: { imageLoadType: "HTMLImageElement" },
   scale: { mode: Phaser.Scale.NONE, width: innerWidth * dpr, height: innerHeight * dpr, zoom: 1 / dpr },
   fps: { limit: 30 },

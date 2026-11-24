@@ -78,8 +78,12 @@ Budget, by what the person can see:
 
 Movement is by elapsed time, so any rate looks right. All the art is packed
 into a few atlas pages (a handful of textures, so the renderer batches the
-town into few draw calls); the plaza, its roads, the tubes and the lots are
-drawn once into a texture (again only when the state changes); what is out
+town into few draw calls), with mipmaps, so art drawn at 2–4× and seen from
+afar is sampled from small copies (this alone took the GPU process from ~22% to
+~3% for 30 committees); gardens, sills and reels are art, not shapes; the
+grass is one repeated patch, not a tile layer; the plaza, its roads, the tubes
+and the lots are drawn once into a texture (again only when the state
+changes); what is out
 of view isn't drawn; people off screen are moved but not animated; the
 population is capped by what the view can hold and by the hour. **Calm** (the
 leaf button; kept in the shell's storage) halves the townspeople and turns

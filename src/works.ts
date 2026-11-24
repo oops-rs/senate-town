@@ -11,7 +11,7 @@ import Phaser from "phaser";
 import {
   archive, bay, bayPlaces, bench, boards, capsule, character, cottage, daylight, gate, glow, hall, house as houseArt, HOUSE_TOP, INK,
   landmark, memoryHall, monument, PALETTE, person, plant, RUNTIME, sheet, signal, skyline, speakerHouse, sprite, STYLES,
-  tool as toolArt, TOOLS, townGate, townHall, train, tree, WASH, lamp, sails, weatherArt, image, retexture, artOf, where, type Daylight, type Style,
+  tool as toolArt, TOOLS, townGate, townHall, train, tree, WASH, lamp, sails, weatherArt, gardenArt, bar, image, retexture, artOf, where, type Daylight, type Style,
 } from "./art.ts";
 import { COLOURS, generateHouse, generateLook, houses, houseSize, readHouse, readLook, type HouseSpec, type Look } from "./gen.ts";
 import { Room } from "./room.ts";
@@ -161,8 +161,21 @@ export class Works extends Phaser.Scene {
     const map = this.make.tilemap({ key: "works" });
     const props = (map.properties as { name: string; value: number }[]) ?? [];
     this.hubOffset = { x: props.find((p) => p.name === "hubX")?.value ?? 0, y: props.find((p) => p.name === "hubY")?.value ?? 0 };
-    const tiles = map.addTilesetImage("ground", "ground")!;
-    map.createLayer("ground", tiles, -this.hubOffset.x, -this.hubOffset.y)!.setDepth(-30_000);
+    // The grass: a patch of the map's tiles drawn once and repeated as one
+    // tiled sprite (a tile layer would be thousands of quads every frame).
+    const layer = map.getLayer("ground");
+    if (layer) {
+      const T = map.tileWidth, N = Math.min(32, layer.width, layer.height);
+      const src = this.textures.get("ground").getSourceImage() as HTMLImageElement;
+      const patch = this.textures.exists("grass") ? (this.textures.get("grass") as Phaser.Textures.CanvasTexture) : this.textures.createCanvas("grass", N * T, N * T)!;
+      const ctx = patch.getContext();
+      for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+        const index = Math.max(0, (layer.data[y]?.[x]?.index ?? 1) - 1);
+        ctx.drawImage(src, index * T, 0, T, T, x * T, y * T, T, T);
+      }
+      patch.refresh();
+      this.add.tileSprite(-this.hubOffset.x, -this.hubOffset.y, map.widthInPixels, map.heightInPixels, "grass").setOrigin(0).setDepth(-30_000);
+    }
     this.treesFromMap = (map.getObjectLayer("trees")?.objects ?? []).map((o) => ({ x: (o.x ?? 0) - this.hubOffset.x, y: (o.y ?? 0) - this.hubOffset.y }));
     for (const make of [hall, archive, townHall, memoryHall, signal, gate, bench, sheet, skyline, townGate, train, glow, lamp, weatherArt]) make(this);
 
@@ -876,12 +889,7 @@ export class Works extends Phaser.Scene {
       const sp = gardenSpots[i]!;
       root.add(sprite(this, sp.x, sp.y - 20, plant(this, species, Math.floor(rnd() * 4))));
     });
-    const g = this.add.graphics();
-    if (spec.garden === "flowers") for (let i = 0; i < 9; i++) g.fillStyle([0xffb7c5, 0xfff2a8, 0xffffff, 0xd6bfe6][i % 4]!, 1).fillCircle(-w / 2 + 14 + i * 8, h / 2 + 12, 3.5);
-    if (spec.garden === "hedge") g.fillStyle(PALETTE.leafDark, 1).fillRoundedRect(-w / 2, h / 2 + 6, w * 0.32, 12, 6).fillRoundedRect(w / 2 - w * 0.32, h / 2 + 6, w * 0.32, 12, 6);
-    if (spec.garden === "rocks") for (let i = 0; i < 4; i++) g.fillStyle(PALETTE.stoneDark, 1).fillEllipse(w / 2 - 20 - i * 14, h / 2 + 12, 10, 7);
-    if (spec.garden === "pond") g.fillStyle(PALETTE.water, 1).fillEllipse(w / 2 + 10, h / 2 + 16, 46, 18).lineStyle(2, INK, 1).strokeEllipse(w / 2 + 10, h / 2 + 16, 46, 18);
-    root.add(g);
+    if (spec.garden !== "lawn") root.add(sprite(this, 5, h / 2 + 15, gardenArt(this, spec.garden, w)));
     if (spec.landmark !== "none") root.add(sprite(this, w / 2 + 34, -h / 2 + 10, landmark(this, spec.landmark, COLOURS[spec.trim]!)).setOrigin(0.5, 0.75));
     if (spec.landmark === "windmill") {
       const sail = sprite(this, w / 2 + 34, -h / 2 + 10 - 49.5, sails(this));
@@ -895,7 +903,7 @@ export class Works extends Phaser.Scene {
     const body = sprite(this, 0, 0, art.key).setOrigin(0.5, (HOUSE_TOP + h / 2) / (h + HOUSE_TOP + 10));
     root.add(body);
     // Winter: snow along the roof.
-    if (this.season === "winter") root.add(this.add.rectangle(0, -h / 2 - HOUSE_TOP + 40, w - 24, 8, 0xffffff).setStrokeStyle(1.5, 0xd8e2ee));
+    if (this.season === "winter") root.add(sprite(this, 0, -h / 2 - HOUSE_TOP + 40, bar(this, w - 24, 8, 0xffffff, 0xd8e2ee, 1.5)));
     let clickTimer: Phaser.Time.TimerEvent | undefined;
     const target = (): Target => {
       const c = this.state.committees.find((k) => k.name === name);
@@ -1040,7 +1048,7 @@ export class Works extends Phaser.Scene {
       });
       // A sill over the bays' foot, so the senators sit inside.
       const wall = COLOURS[shop.spec.wall]!;
-      const sill = this.add.rectangle(0, shop.bayY + 26, shop.size.w - 36, 10, wall).setStrokeStyle(2, INK);
+      const sill = sprite(this, 0, shop.bayY + 26, bar(this, shop.size.w - 36, 10, wall, INK));
       shop.root.add(sill);
       shop.extras.push(sill);
       const litBays = shop.bays.filter((b) => artOf(b.window) === "bay-lit");
@@ -1309,10 +1317,9 @@ export class Works extends Phaser.Scene {
     names.slice(0, 7).forEach((n, row) => {
       const y = -46 + row * 15;
       const count = this.reels.get(n) ?? 0;
-      const g = this.add.graphics();
-      g.fillStyle(0x2c3657, 1).fillRoundedRect(-72, y - 5, 144, 10, 5);
-      g.fillStyle(n === latest ? PALETTE.amber : 0x8fa0d6, 1).fillRoundedRect(-70, y - 3, Math.min(140, 6 + count * 6), 6, 3);
-      this.reelLayer.add(g);
+      const len = Math.min(140, 6 + count * 6);
+      this.reelLayer.add(sprite(this, 0, y, bar(this, 144, 10, 0x2c3657, undefined, 0)));
+      this.reelLayer.add(sprite(this, -70 + len / 2, y, bar(this, 140, 6, n === latest ? PALETTE.amber : 0x8fa0d6, undefined, 0)).setScale(0.5 * (len / 140), 0.5));
     });
   }
 
