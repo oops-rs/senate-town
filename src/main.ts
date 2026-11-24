@@ -7,14 +7,12 @@
 import Phaser from "phaser";
 import type { Daylight } from "./art.ts";
 import { Feed } from "./feed.ts";
-import { connect, portBinding, webkitBinding, type Binding, type Environment, type Host, type Status } from "./host.ts";
+import { connect, inFrame, webkitBinding, type Binding, type Environment, type Host, type Status } from "./host.ts";
 import { firstWords } from "./model.ts";
 import { devShell } from "./shell.ts";
 import { Works, type Target } from "./works.ts";
 
 let host: Host | undefined;
-window.addEventListener("error", (e) => host?.error(`${e.message} @${e.filename?.split("/").pop()}:${e.lineno}`));
-window.addEventListener("unhandledrejection", (e) => host?.error(String(e.reason)));
 
 const scene = new Works();
 const card = document.getElementById("card")!;
@@ -141,7 +139,8 @@ const pace = {
   /** The shell says whether its window is in front (it knows better than DOM focus, which follows clicks); else the browser does. */
   shellFocused: undefined as boolean | undefined,
   lowPower: false,
-  docFocused: document.hasFocus(),
+  // Without a shell signal: assume in front until the page is told otherwise (an iframe has no focus until clicked).
+  docFocused: true,
   interactUntil: 0,
   limit: 30,
   timer: 0,
@@ -220,13 +219,12 @@ function environment(env: Environment) {
 }
 const feed = new Feed({ snapshot: (s, e) => scene.setState(s, e), events: (e) => scene.act(e) });
 
-async function shell(): Promise<Binding> {
+function shell(): Binding | "parent" {
   const demo = params.get("demo");
   if (!demo) {
     const native = webkitBinding();
     if (native) return native;
-    const port = portBinding();
-    if (port) return port;
+    if (inFrame()) return "parent";
   }
   const file = params.get("recording") ?? (demo === "large" || params.has("large") ? "recordings/demo-large.ndjson" : "recordings/demo.ndjson");
   return devShell({
@@ -235,8 +233,8 @@ async function shell(): Promise<Binding> {
     overrides: params.has("reduce-motion") ? { reduced_motion: true } : undefined,
   });
 }
-void shell().then((binding) => {
-  host = connect(binding, { status, environment, snapshot: (s) => feed.snapshot(s), event: (f) => feed.frame(f) });
+void connect(shell(), { status, environment, snapshot: (s) => feed.snapshot(s), event: (f) => feed.frame(f) }).then((h) => {
+  host = h;
   // The person's own setting, kept by the shell.
   void host.storageGet("calm").then((v) => { if (v === true) { scene.setCalm(true); showCalm(true); } });
 });

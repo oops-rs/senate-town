@@ -15,6 +15,8 @@ import {
 } from "./art.ts";
 import { COLOURS, generateHouse, generateLook, houses, houseSize, readHouse, readLook, type HouseSpec, type Look } from "./gen.ts";
 import { Room } from "./room.ts";
+import groundTiles from "../assets/ground.png";
+import worksMap from "../assets/works.tmj";
 import { Life, type Places } from "./life.ts";
 import { Grid } from "./nav.ts";
 import { Person } from "./people.ts";
@@ -149,9 +151,10 @@ export class Works extends Phaser.Scene {
   }
 
   preload() {
-    this.load.setPath("assets");
-    this.load.tilemapTiledJSON("works", "works.tmj");
-    this.load.image("ground", "ground.png");
+    // Both are in the bundle itself (the map as JSON, the tiles as a data
+    // URL): a scene loads nothing, so it runs in any shell, however strict.
+    this.load.tilemapTiledJSON("works", worksMap as object);
+    this.load.image("ground", groundTiles);
   }
 
   create() {

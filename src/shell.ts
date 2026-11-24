@@ -1,19 +1,21 @@
-// The dev shell: a shell that runs in the same page as the scene, for
-// development and demos with no Senate at all. It plays the shell's side of
-// the scene host contract: environment from the browser, a small in-memory
-// store, and observe data replayed from a recording in the observe
-// recording format (NDJSON: a header, a snapshot, then timed frames or
-// replacement snapshots, then an end mark). Links are only announced (an
-// `open` DOM event), never followed.
-import type { Binding, Environment, Message } from "./host.ts";
+// The dev shell: a shell in the same page as the scene, for development and
+// demos with no Senate at all. It plays the shell's side of the scene host
+// contract over a MessageChannel: answers `ready`, sends status and the
+// browser's environment, keeps a small in-memory store, and replays observe
+// data from a recording in the observe recording format (NDJSON: a header,
+// then rows `{offset_ms, type: "snapshot" | "frame" | "discontinuity" |
+// "end", data?}`). Links are only announced (an `senate-open` DOM event),
+// never followed.
+import type { Binding, Environment } from "./host.ts";
 import { HOST_VERSION } from "./host.ts";
 import type { Frame, ObserveState } from "./observe.ts";
 
 export interface RecordingHeader { format: "senate-observe-recording"; version: 1; capabilities: string[] }
 export type Row =
-  | { snapshot: ObserveState; offset_ms?: number }
-  | { offset_ms: number; frame: Frame }
-  | { offset_ms: number; end: true };
+  | { offset_ms: number; type: "snapshot"; data: ObserveState }
+  | { offset_ms: number; type: "frame"; data: Frame }
+  | { offset_ms: number; type: "discontinuity" }
+  | { offset_ms: number; type: "end" };
 
 /** Parse an observe recording; a truncated last line (no end mark) is dropped. */
 export function parseRecording(text: string): { header: RecordingHeader; rows: Row[] } {
@@ -28,27 +30,27 @@ export function parseRecording(text: string): { header: RecordingHeader; rows: R
       if (header.format !== "senate-observe-recording" || header.version !== 1) throw new Error("recording: not an observe recording v1");
     } else rows.push(v as Row);
   }
-  const head = rows[0];
-  if (!header || !head || !("snapshot" in head)) throw new Error("recording: no snapshot");
+  if (!header || rows[0]?.type !== "snapshot") throw new Error("recording: no snapshot");
   return { header, rows };
 }
 
 export interface DevShellOptions {
-  /** The recording's text, or where to fetch it (same origin). */
-  recording: string | (() => Promise<string>);
+  /** Where to fetch the recording (same origin). */
+  recording: () => Promise<string>;
   loop?: boolean;
-  /** Pause between the end and the next play. */
+  /** Pause between the end and the next play when the recording has no end mark. */
   pause?: number;
   overrides?: Partial<Pick<Environment, "color_scheme" | "reduced_motion">>;
 }
 
-/** A local binding wired to an in-page shell. */
+/** A local binding: the scene gets one end of a channel, this shell holds the other. */
 export function devShell(opts: DevShellOptions): Binding {
-  let toScene: ((m: Message) => void) | undefined;
+  const channel = new MessageChannel();
+  const port = channel.port2;
   const timers: number[] = [];
   const store = new Map<string, string>();
   const say = (type: string, data?: unknown, request_id?: string) =>
-    queueMicrotask(() => toScene?.({ host_version: HOST_VERSION, type, ...(request_id ? { request_id } : {}), data }));
+    port.postMessage({ host_version: HOST_VERSION, type, ...(request_id ? { request_id } : {}), ...(data === undefined ? {} : { data }) });
   const result = (id: string | undefined, r: { ok: boolean; value?: unknown; code?: string }) => say("result", r, id);
 
   const media = (q: string) => window.matchMedia(q).matches;
@@ -64,30 +66,30 @@ export function devShell(opts: DevShellOptions): Binding {
   const sendEnvironment = () => say("environment", environment());
 
   const play = async () => {
-    const text = typeof opts.recording === "string" ? opts.recording : await opts.recording();
-    const { rows } = parseRecording(text);
+    const { rows } = parseRecording(await opts.recording());
     const round = () => {
       let last = 0;
       for (const row of rows) {
-        const at = row.offset_ms ?? 0;
-        last = Math.max(last, at);
+        last = Math.max(last, row.offset_ms);
         timers.push(window.setTimeout(() => {
-          if ("snapshot" in row) say("observe.snapshot", { snapshot: row.snapshot });
-          else if ("frame" in row) say("observe.event", { frame: row.frame });
-        }, at));
+          if (row.type === "snapshot") say("observe.snapshot", { snapshot: row.data });
+          else if (row.type === "frame") say("observe.event", { frame: row.data });
+        }, row.offset_ms));
       }
-      const end = rows.find((r) => "end" in r);
-      if (opts.loop !== false) timers.push(window.setTimeout(round, end ? end.offset_ms! : last + (opts.pause ?? 16_000)));
+      const end = rows.find((r) => r.type === "end");
+      if (opts.loop !== false) timers.push(window.setTimeout(round, end ? end.offset_ms : last + (opts.pause ?? 16_000)));
     };
     say("status", { state: "ready" });
     round();
   };
 
-  const receive = (m: Message) => {
-    if (m.host_version !== HOST_VERSION) return;
-    const d = (m.data ?? {}) as Record<string, unknown>;
+  port.onmessage = (e) => {
+    const m = e.data as { host_version?: number; type?: string; request_id?: string; data?: Record<string, unknown> };
+    if (m?.host_version !== HOST_VERSION) return;
+    const d = m.data ?? {};
     switch (m.type) {
       case "ready":
+        result(m.request_id, { ok: true, value: { version: 1, capabilities: [] } });
         sendEnvironment();
         for (const q of ["(prefers-color-scheme: dark)", "(prefers-reduced-motion: reduce)"]) window.matchMedia(q).addEventListener("change", sendEnvironment);
         window.addEventListener("resize", sendEnvironment);
@@ -96,6 +98,7 @@ export function devShell(opts: DevShellOptions): Binding {
         break;
       case "open":
         window.dispatchEvent(new CustomEvent("senate-open", { detail: String(d.url ?? "") }));
+        result(m.request_id, { ok: true });
         break;
       case "storage.get": {
         const v = store.get(String(d.key));
@@ -113,17 +116,10 @@ export function devShell(opts: DevShellOptions): Binding {
         store.delete(String(d.key));
         result(m.request_id, { ok: true });
         break;
-      case "card.write":
-        result(m.request_id, { ok: false, code: "unsupported" });
-        break;
       default:
         if (m.request_id) result(m.request_id, { ok: false, code: "unsupported" });
     }
   };
-
-  return {
-    name: "local",
-    send: (m) => queueMicrotask(() => receive(m)),
-    listen: (r) => { toScene = r; },
-  };
+  port.start();
+  return { name: "local", port: channel.port1 as unknown as Binding["port"] };
 }
