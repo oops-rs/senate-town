@@ -12,28 +12,43 @@ crates, builds and tests on its own, and can be split out with
 
 ```sh
 npm ci
-npm test             # vitest: model, director, hub layout, generation, sources
+npm test             # vitest: model, director, hub layout, generation, observe, feed, host, recordings
 npm run check        # tsc --noEmit
-npm run build        # dist/: index.html, town.js, town.css, assets/, recordings/, NOTICE.md, LICENSE
+npm run build        # dist/: manifest.json, index.html, town.js, town.css, assets/, recordings/, NOTICE.md, LICENSE
 npm run serve        # http://127.0.0.1:8765/
-npm run record       # rewrite recordings/demo.json and demo-large.json from the scripted town
+npm run record       # rewrite recordings/demo.ndjson and demo-large.ndjson (observe recordings) from the scripted day
 npm run map          # assets/works.tmj (open it in Tiled)
 npm run tiles        # assets/ground.png
 ```
 
-## Data sources
+## Content and shell
 
-The page draws whatever a source feeds it (`src/source.ts`): a full
-`TownState` (snapshot) and `TownEvent`s as they happen.
+Town is content: a self-contained bundle (`manifest.json`, `index.html`,
+`town.js`, assets) with no network and no knowledge of which shell runs it.
+It talks to its shell only through `src/host.ts`, the scene host contract
+of docs/observe.md: one ordered channel of JSON messages
+`{host_version: 1, type, request_id?, data}`.
 
-| Source | Where | |
-| --- | --- | --- |
-| `ScriptedSource` | browser default, app demo | the scripted town in `src/script.ts`: 5 or 30 committees, messages, a held delivery, tools, a signed approval, a release, a new committee being built |
-| `RecordedSource` | `?source=recorded&file=recordings/demo.json` | replays a recording (`{version: 1, snapshot, steps: [{at, state?, events?, entries?}], loop?}`) |
-| `BridgeSource` | the app, for now | Swift pushes state and activity through `window.town` |
-| observe client | next | the Senate's observe API (snapshot + events + cards + deep links), replacing the bridge |
+- in: `status`, `environment` (colour scheme, reduced motion, locale, time
+  zone, visibility, viewport), `observe.snapshot`, `observe.event` (the
+  public observe state and frames), `result`
+- out: `ready`, `open {url}` (the row's `senate://open/v1/…` link,
+  unchanged), `storage.get/set/delete`, `card.write`, `error`
 
-Browser flags: `large` (30 committees), `once`, `now`, `time=day|dusk|night|HH`,
+Three bindings of that channel, chosen in `src/main.ts`:
+
+| Binding | Shell |
+| --- | --- |
+| `webkit` | the Senate app's web view (`scene` handler in, `__senateScene(message)` out); the only place `webkit` appears |
+| `port` | a parent page handing over a MessagePort (the browser reference shell, an Android WebMessagePort) |
+| `local` | the dev shell (`src/shell.ts`) in the same page: replays an observe recording, `recordings/demo.ndjson` (`?demo=large` for 30 committees, `?recording=<file>` for another) |
+
+`src/observe.ts` maps the public state to what the scene draws; `src/feed.ts`
+applies patches and joins a filed message with its hold. `src/encode.ts`
+writes the scripted day (`src/script.ts`) as an observe recording
+(`npm run record`); it is for development and never bundled.
+
+Browser flags: `demo=large`, `recording=<file>`, `once`, `time=day|dusk|night`,
 `dark=1|0`, `reduce-motion`, `enter=<committee>` (start inside a house),
 `stats`.
 
@@ -41,10 +56,9 @@ Browser flags: `large` (30 committees), `once`, `now`, `time=day|dusk|night|HH`,
 
 `apps/macos/scripts/sync-town.sh` builds this package and copies `dist/`
 into `apps/macos/Senate/Web/town/`, which is committed so Xcode never needs
-Node. `SENATE_APP_TOWN_WEB=1` shows the page in the Town tab;
-`SENATE_APP_TOWN_DEMO=1` (or `large`) plays the scripted town there instead
-of live data. The page sends back `ready`, `open`, `room` and `error`;
-every click goes through one function, `openAction` in `src/main.ts`.
+Node. `SENATE_APP_TOWN_WEB=1` shows the page in the Town tab, the app being
+its shell; `SENATE_APP_TOWN_DEMO=1` (or `large`) loads it with `?demo=…`
+so its own dev shell plays the demo instead.
 
 ## Where things live
 
@@ -57,7 +71,9 @@ every click goes through one function, `openAction` in `src/main.ts`.
 | `src/art.ts` | every texture, drawn in code |
 | `src/works.ts` | the `Works` scene: houses, tubes, capsules, sorting hall, archive, signals, gates, workers, civilians, construction, elders, monuments, time of day |
 | `src/room.ts` | the `Room` scene: inside a house, the senators at their desks |
-| `src/source.ts` | the data sources above |
+| `src/host.ts`, `src/shell.ts` | the scene host contract and the dev shell |
+| `src/observe.ts`, `src/feed.ts` | the observe data, as the town reads it |
+| `src/encode.ts` | the scripted day as observe data (development only) |
 | `src/script.ts` | the scripted town |
 | `src/main.ts` | the page: `window.town`, the hover card, `openAction`, flags |
 | `CARDS.md` | the card spec (houses and characters as opaque cards) |

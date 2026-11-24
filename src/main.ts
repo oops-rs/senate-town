@@ -1,18 +1,20 @@
-// The Town page: the Works in a page of its own. In the app it gets the
-// town's state and the committees' activity from Swift and sends back what
-// to open; in a plain browser (or the app's demo) it plays the scripted town.
+// The Town page: the Works in a page of its own. Town is content: it gets
+// the Senate's public observe data and its environment from whatever shell
+// hosts it, through the scene host contract (host.ts), and asks the shell to
+// open links. The shell is the Senate app's web view, a parent page (the
+// browser reference shell) or, standalone, the in-page dev shell replaying
+// a recording.
 import Phaser from "phaser";
 import type { Daylight } from "./art.ts";
-import { activityEvents, firstWords, type ActivityEntry, type TownEvent, type TownState } from "./model.ts";
-import { BridgeSource, RecordedSource, ScriptedSource, type Source } from "./source.ts";
+import { Feed } from "./feed.ts";
+import { connect, portBinding, webkitBinding, type Binding, type Environment, type Host, type Status } from "./host.ts";
+import { firstWords } from "./model.ts";
+import { devShell } from "./shell.ts";
 import { Works, type Target } from "./works.ts";
 
-interface Native { postMessage(body: unknown): void }
-const native: Native | undefined = (window as unknown as { webkit?: { messageHandlers?: { town?: Native } } }).webkit?.messageHandlers?.town;
-
-// Errors go to the app's log (the page has no console of its own there).
-window.addEventListener("error", (e) => native?.postMessage({ action: "error", message: `${e.message} @${e.filename?.split("/").pop()}:${e.lineno}` }));
-window.addEventListener("unhandledrejection", (e) => native?.postMessage({ action: "error", message: String(e.reason) }));
+let host: Host | undefined;
+window.addEventListener("error", (e) => host?.error(`${e.message} @${e.filename?.split("/").pop()}:${e.lineno}`));
+window.addEventListener("unhandledrejection", (e) => host?.error(String(e.reason)));
 
 const scene = new Works();
 const card = document.getElementById("card")!;
@@ -20,12 +22,8 @@ const back = document.getElementById("back") as HTMLButtonElement;
 back.addEventListener("click", () => scene.leave());
 const params = new URLSearchParams(location.search);
 const dpr = Math.min(window.devicePixelRatio || 1, 3);
-scene.reduceMotion = params.has("reduce-motion") || window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-scene.dark = params.get("dark") === "1" || (params.get("dark") !== "0" && window.matchMedia("(prefers-color-scheme: dark)").matches);
 const time = params.get("time");
 if (time === "dawn" || time === "day" || time === "dusk" || time === "night") scene.fixedTime = time as Daylight;
-document.documentElement.dataset.theme = scene.dark ? "dark" : "light";
-
 const ago = (s: number) => s < 3600 ? `${Math.round(s / 60)} min` : s < 86_400 ? `${Math.round(s / 3600)} h` : s < 14 * 86_400 ? `${Math.round(s / 86_400)} days` : `${Math.round(s / (7 * 86_400))} weeks`;
 
 /** What a hover card says: the who and what, never drawn on the town. */
@@ -59,15 +57,19 @@ function describe(t: Target): string[] {
   }
 }
 
-function openAction(t: Target): { kind: string; id: string } | undefined {
+/** Where a click goes: the link the observed row carries, opened unchanged. One function for every target. */
+function linkOf(t: Target): string | undefined {
+  const st = scene.state, nav = st.navigation ?? {};
   switch (t.kind) {
-    case "senator": return t.senator.sessionId ? { kind: "session", id: t.senator.sessionId } : t.committee ? { kind: "committee", id: t.committee } : undefined;
-    case "elder": return t.elder.sessionId ? { kind: "past", id: t.elder.sessionId } : undefined;
-    case "workshop": return { kind: "committee", id: t.name };
-    case "townhall": return { kind: "hall", id: "" };
-    case "memory": return { kind: "history", id: "" };
-    case "gate": return { kind: "approvals", id: "" };
-    case "capsule": case "waiting": return { kind: "thread", id: `${t.thread.committee}:${t.thread.root}` };
+    case "senator": return t.senator.link ?? st.committees.find((c) => c.name === t.committee)?.link;
+    case "elder": return t.elder.link ?? nav.history;
+    case "workshop": return st.committees.find((c) => c.name === t.name)?.link;
+    case "townhall": return nav.desk;
+    case "memory": return nav.history;
+    case "gate": return t.approval.link ?? nav.approvals;
+    case "capsule": case "waiting": return t.thread.link ?? st.committees.find((c) => c.name === t.thread.committee)?.link;
+    case "archived": return t.archived.link;
+    case "monument": return t.project.link;
     default: return undefined;
   }
 }
@@ -85,18 +87,15 @@ scene.hooks = {
     card.style.left = `${Math.min(x / dpr + 14, innerWidth - r.width - 8)}px`;
     card.style.top = `${Math.min(y / dpr + 18, innerHeight - r.height - 8)}px`;
   },
-  room(committee) {
-    back.hidden = committee === undefined;
-    if (native) native.postMessage({ action: "room", id: committee ?? "" });
-  },
+  room(committee) { back.hidden = committee === undefined; },
   open(target) {
-    const body = openAction(target);
-    if (!body) return;
-    if (native) native.postMessage({ action: "open", ...body });
-    else toast(`open ${body.kind} ${body.id}`.trim());
+    const url = linkOf(target);
+    if (url) host?.open(url);
   },
 };
 
+// The dev shell only announces the links a click would open.
+window.addEventListener("senate-open", (e) => toast((e as CustomEvent<string>).detail));
 function toast(text: string) {
   const el = document.getElementById("toast")!;
   el.textContent = text;
@@ -127,35 +126,51 @@ for (const type of ["pointermove", "pointerdown", "wheel", "keydown"]) {
   window.addEventListener(type, () => scene.touch(), { passive: true });
 }
 
-// Where the data comes from: the app's bridge when embedded, else a recording
-// (?source=recorded&file=recordings/demo.json) or the scripted town.
-const big = params.has("large") || params.get("demo") === "large";
-const sink = { snapshot: (s: TownState, e?: TownEvent[]) => scene.setState(s, e), events: (e: TownEvent[]) => scene.act(e) };
-const bridge = new BridgeSource();
-let source: Source = bridge;
-function use(next: Source) {
-  source.stop();
-  source = next;
-  source.start(sink);
+// The shell: the app's web view, a parent page's port, or the dev shell
+// (?demo=large for 30 committees, ?recording=<file> for another recording).
+const statusEl = document.getElementById("status")!;
+function status(state: Status) {
+  statusEl.hidden = state === "ready";
+  statusEl.textContent = state === "access_needed" ? "Town needs access to this Senate."
+    : state === "version_mismatch" ? "This Town doesn't match this Senate's version." : "Waiting for the Senate…";
 }
+function environment(env: Environment) {
+  scene.reduceMotion = env.reduced_motion;
+  const dark = params.get("dark") === "1" || (params.get("dark") !== "0" && env.color_scheme === "dark");
+  scene.setDark(dark);
+  document.documentElement.dataset.theme = dark ? "dark" : "light";
+  document.documentElement.lang = env.locale;
+  const zone = env.time_zone;
+  scene.clock = () => { try { return new Date(new Date().toLocaleString("en-US", { timeZone: zone })); } catch { return new Date(); } };
+  if (!game.isBooted) return;
+  if (!env.visible) { game.loop.sleep(); game.pause(); } else { game.resume(); scene.touch(); }
+}
+const feed = new Feed({ snapshot: (s, e) => scene.setState(s, e), events: (e) => scene.act(e) });
 
-/** The page's API, called by the app with plain data. */
+async function shell(): Promise<Binding> {
+  const demo = params.get("demo");
+  if (!demo) {
+    const native = webkitBinding();
+    if (native) return native;
+    const port = portBinding();
+    if (port) return port;
+  }
+  const file = params.get("recording") ?? (demo === "large" || params.has("large") ? "recordings/demo-large.ndjson" : "recordings/demo.ndjson");
+  return devShell({
+    recording: () => fetch(file).then((r) => r.text()),
+    loop: !params.has("once"),
+    overrides: params.has("reduce-motion") ? { reduced_motion: true } : undefined,
+  });
+}
+void shell().then((binding) => {
+  host = connect(binding, { status, environment, snapshot: (s) => feed.snapshot(s), event: (f) => feed.frame(f) });
+});
+
+/** Controls for tests and the app's snapshot hook (no data goes in here). */
 const api = {
-  setState(state: TownState, entries: ActivityEntry[] = []) { bridge.state(state, entries); },
-  activity(entries: ActivityEntry[]) { bridge.activity(entries); },
-  events(events: TownEvent[]) { bridge.events(events); },
-  setOptions(o: { reduceMotion?: boolean; dark?: boolean; visible?: boolean; time?: Daylight }) {
-    if (o.reduceMotion !== undefined) scene.reduceMotion = o.reduceMotion;
-    if (o.time) scene.fixedTime = o.time;
-    if (o.dark !== undefined) { scene.setDark(o.dark); document.documentElement.dataset.theme = o.dark ? "dark" : "light"; }
-    if (o.visible === false) { game.loop.sleep(); game.pause(); }
-    if (o.visible === true) { game.resume(); scene.touch(); }
-  },
-  /** The scripted town (the app's demo): "small" or "large". */
-  demo(kind: string) { use(new ScriptedSource(kind === "large" ? "large" : "small")); },
+  setOptions(o: { time?: Daylight }) { if (o.time) scene.fixedTime = o.time; scene.touch(); },
   fit() { scene.fit(); },
   look(where: string, zoom: number) { scene.look(where, zoom); },
-  /** Go into a committee's house, and back out. */
   enter(name: string) { scene.enter(name); },
   leave() { scene.leave(); },
   zoom(f: number) { scene.zoomAt(f, (innerWidth / 2) * dpr, (innerHeight / 2) * dpr); },
@@ -165,18 +180,9 @@ const api = {
 (window as unknown as { town: typeof api }).town = api;
 
 if (params.has("stats")) setInterval(() => console.log("town-stats " + JSON.stringify(scene.stats())), 1000);
-
-if (native) {
-  bridge.start(sink);
-  native.postMessage({ action: "ready" });
-} else {
-  const file = params.get("file");
-  const start = () => use(params.get("source") === "recorded" && file ? new RecordedSource(file) : new ScriptedSource(big ? "large" : "small", !params.has("once")));
-  setTimeout(start, params.has("now") ? 200 : 1200);
-  const into = params.get("enter");
-  if (into) {
-    let tries = 0;
-    const tryEnter = () => { if (scene.stats().shops > 0 || ++tries > 40) scene.enter(into); else setTimeout(tryEnter, 150); };
-    setTimeout(tryEnter, 300);
-  }
+const into = params.get("enter");
+if (into) {
+  let tries = 0;
+  const tryEnter = () => { if (scene.stats().shops > 0 || ++tries > 40) scene.enter(into); else setTimeout(tryEnter, 150); };
+  setTimeout(tryEnter, 300);
 }

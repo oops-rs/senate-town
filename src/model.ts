@@ -20,6 +20,8 @@ export interface Senator {
   watched?: boolean;
   /** Its own card: how it chose to look (untrusted; read by gen.readLook). */
   card?: unknown;
+  /** Where a click goes: the canonical senate://open link it carries (observe), opened unchanged. */
+  link?: string;
 }
 
 /** A committee that was archived: its house stays as a monument. */
@@ -30,6 +32,8 @@ export interface Archived {
   closed?: string;
   shipped?: string[];
   card?: unknown;
+  /** Where a click goes: the canonical senate://open link it carries (observe), opened unchanged. */
+  link?: string;
 }
 
 /** A senator no longer working: an elder of the town, aged by idle time. */
@@ -42,9 +46,11 @@ export interface Elder {
   /** Its ended session, which a click opens in History. */
   sessionId?: string;
   committee?: string;
+  /** Where a click goes: the canonical senate://open link it carries (observe), opened unchanged. */
+  link?: string;
 }
 
-export interface Release { name: string; date?: string; merges: number; plaques: string[] }
+export interface Release { name: string; date?: string; merges: number; fixes?: number; plaques: string[] }
 
 /** A repository the committees work in: its own monument quarter. */
 export interface Project {
@@ -55,6 +61,7 @@ export interface Project {
   releases: Release[];
   unreleased?: { merges: number; plaques: string[] };
   committees?: string[];
+  link?: string;
 }
 
 /** The links beyond town: the parent Senate, child Senates, paired machines. */
@@ -65,7 +72,7 @@ export interface Links {
 }
 
 /** A permission prompt only a person may sign: the gate at a workshop. */
-export interface Approval { senator: string; ask: string; person?: string }
+export interface Approval { senator: string; ask: string; person?: string; link?: string }
 
 export type ToolKind = "bash" | "edit" | "read" | "grep" | "mcp" | "web";
 
@@ -75,6 +82,8 @@ export interface ThreadRef {
   title: string;
   /** Who asked, for a thread waiting on the person. */
   asker?: string;
+  /** Where a click goes: the canonical senate://open link it carries (observe), opened unchanged. */
+  link?: string;
 }
 
 export interface Committee {
@@ -85,6 +94,8 @@ export interface Committee {
   waiting?: ThreadRef[];
   /** The chair's card for the house (untrusted; read by gen.readHouse). */
   card?: unknown;
+  /** Where a click goes: the canonical senate://open link it carries (observe), opened unchanged. */
+  link?: string;
 }
 
 export interface Hall {
@@ -103,6 +114,8 @@ export interface TownState {
   /** History: ended sessions kept. */
   history?: number;
   archived?: Archived[];
+  /** The app's entry points (desk, approvals, inbox, history, profile), as links. */
+  navigation?: Partial<Record<"desk" | "approvals" | "inbox" | "history" | "profile", string>>;
 }
 
 export type TownEvent =

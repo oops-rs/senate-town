@@ -3,7 +3,7 @@
 html, body { margin: 0; height: 100%; overflow: hidden; background: #7fb069; }
 #town { position: fixed; inset: 0; }
 #town canvas { display: block; image-rendering: pixelated; }
-#card, #toast {
+#card, #toast, #status {
   position: fixed; z-index: 2; pointer-events: none; max-width: 280px;
   font: 12px/1.35 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
   color: var(--ink); background: var(--card); border: 1px solid var(--edge); border-radius: 8px;
@@ -13,6 +13,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #7fb069; }
 #card strong { font-weight: 600; }
 #card span { color: var(--soft); }
 #toast { left: 50%; bottom: 16px; transform: translateX(-50%); }
+#status { left: 50%; top: 16px; transform: translateX(-50%); max-width: none; }
 [hidden] { display: none !important; }
 #back {
   position: fixed; z-index: 3; top: 14px; left: 14px; width: 40px; height: 40px; border-radius: 20px;

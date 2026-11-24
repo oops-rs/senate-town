@@ -75,8 +75,10 @@ export class Works extends Phaser.Scene {
   dark = false;
   /** Fixed time of day (snapshots); else the clock. */
   fixedTime?: Daylight;
+  /** The clock the time of day follows (the shell's time zone). */
+  clock: () => Date = () => new Date();
 
-  private state: TownState = { committees: [] };
+  state: TownState = { committees: [] };
   private plan: Plan = plan([]);
   private director = new Director();
   /** Everything built for the current set of committees, destroyed on rebuild. */
@@ -259,7 +261,7 @@ export class Works extends Phaser.Scene {
 
   /** The light over the town now: the clock's, or night when dark. */
   private applyDaylight() {
-    const when = this.fixedTime ?? daylight(new Date(), this.dark);
+    const when = this.fixedTime ?? daylight(this.clock(), this.dark);
     const w = WASH[when];
     this.wash.setFillStyle(w.color, 1).setAlpha(w.alpha).setVisible(w.alpha > 0);
     for (const g of this.glows) g.setVisible(w.glow);
@@ -730,7 +732,7 @@ export class Works extends Phaser.Scene {
       const litBays = shop.bays.filter((b) => b.window.texture.key === "bay-lit");
       for (const b of litBays) {
         shop.extras.push(this.glowAt(shop.slot.at.x + b.window.x, shop.slot.at.y + b.window.y, 0.9)
-          .setVisible(WASH[this.fixedTime ?? daylight(new Date(), this.dark)].glow));
+          .setVisible(WASH[this.fixedTime ?? daylight(this.clock(), this.dark)].glow));
       }
       // Something waiting on the person: a visitor with a letter by the door.
       const first = committee?.waiting?.[0];

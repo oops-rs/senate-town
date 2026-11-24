@@ -20,6 +20,7 @@ for (const f of ["works.tmj", "ground.png"])
   cpSync(new URL(`../assets/${f}`, import.meta.url), new URL(`assets/${f}`, out));
 cpSync(new URL("../NOTICE.md", import.meta.url), new URL("NOTICE.md", out));
 cpSync(new URL("../LICENSE", import.meta.url), new URL("LICENSE", out));
+cpSync(new URL("../manifest.json", import.meta.url), new URL("manifest.json", out));
 cpSync(new URL("../recordings/", import.meta.url), new URL("recordings/", out), { recursive: true });
 const kb = (f) => (statSync(new URL(f, out)).size / 1024).toFixed(0);
 console.log(`${out.pathname}: town.js ${kb("town.js")} KB, map ${kb("assets/works.tmj")} KB`);

@@ -1,0 +1,12 @@
+{
+  "name": "town",
+  "version": "0.1.0",
+  "entry": "index.html",
+  "observe": {
+    "major": 1,
+    "required": ["state_patch"],
+    "optional": ["message_routing", "hosted_viewers", "approval_metadata", "cards", "desk", "topology", "app_links", "tool_lifecycle", "project_releases"]
+  },
+  "cards": { "reads": ["town.house/v1", "town.look/v1"], "writes": [] },
+  "min_host_version": 1
+}
