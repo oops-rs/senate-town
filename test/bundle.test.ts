@@ -90,7 +90,64 @@ describe("scene bundle manifest (docs/scenes.md)", () => {
     expect(files.length).toBeLessThanOrEqual(2000);
     expect(files.reduce((n, f) => n + f.size, 0)).toBeLessThanOrEqual(64 * 1024 * 1024);
     expect(files.some((f) => f.path === "manifest.json")).toBe(true);
-    const m = JSON.parse(readFileSync(join(dist, "manifest.json"), "utf8")) as { entry: string };
+    const m = JSON.parse(new TextDecoder().decode(readFileSync(join(dist, "manifest.json")))) as { entry: string };
     expect(files.some((f) => f.path === m.entry)).toBe(true);
+  });
+
+  test("town.senatescene (when packed) uses only STORED (method 0) entries with valid CRC-32", () => {
+    const archivePath = join(ROOT, "town.senatescene");
+    let exists = false;
+    try { exists = lstatSync(archivePath).isFile(); } catch { exists = false; }
+    if (!exists) return;
+
+    const b = readFileSync(archivePath);
+    const u16 = (i: number) => b[i]! | (b[i + 1]! << 8);
+    const u32 = (i: number) => (b[i]! | (b[i + 1]! << 8) | (b[i + 2]! << 16) | (b[i + 3]! << 24)) >>> 0;
+    const crc32 = (data: Uint8Array) => {
+      let crc = 0xffffffff;
+      for (let i = 0; i < data.length; i++) {
+        crc ^= data[i]!;
+        for (let k = 0; k < 8; k++) crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+      }
+      return (~crc) >>> 0;
+    };
+
+    let eocd = -1;
+    for (let i = b.length - 22; i >= Math.max(0, b.length - 22 - 65535); i--) {
+      if (u32(i) === 0x06054b50) { eocd = i; break; }
+    }
+    expect(eocd).toBeGreaterThanOrEqual(0);
+    const count = u16(eocd + 10);
+    const cdOffset = u32(eocd + 16);
+    expect(count).toBeGreaterThan(0);
+
+    let at = cdOffset;
+    const names: string[] = [];
+    for (let k = 0; k < count; k++) {
+      expect(u32(at)).toBe(0x02014b50);
+      const flags = u16(at + 8);
+      const method = u16(at + 10);
+      const crc = u32(at + 16);
+      const compressed = u32(at + 20);
+      const size = u32(at + 24);
+      const nameLen = u16(at + 28);
+      const extraLen = u16(at + 30);
+      const commentLen = u16(at + 32);
+      const localOffset = u32(at + 42);
+      const name = new TextDecoder().decode(b.subarray(at + 46, at + 46 + nameLen));
+      at += 46 + nameLen + extraLen + commentLen;
+      names.push(name);
+      expect(flags & 1).toBe(0);
+      expect(method).toBe(0);
+      expect(compressed).toBe(size);
+      expect(u32(localOffset)).toBe(0x04034b50);
+      expect(u16(localOffset + 8)).toBe(0);
+      const lNameLen = u16(localOffset + 26);
+      const lExtraLen = u16(localOffset + 28);
+      const start = localOffset + 30 + lNameLen + lExtraLen;
+      expect(crc32(b.subarray(start, start + size))).toBe(crc);
+    }
+    expect(names).toEqual([...names].sort());
+    expect(names).toContain("manifest.json");
   });
 });

@@ -11,14 +11,16 @@ crates, builds and tests on its own, and can be split out with
 `git subtree split --prefix town`. The app consumes only the built page.
 
 ```sh
-npm ci
-npm test             # vitest: model, director, hub layout, generation, observe, feed, host, recordings
+# Clone Senate beside this repository first (until @senate/observe and @senate/scene-host are published to npm):
+#   ../senate/packages/senate-observe
+#   ../senate/packages/senate-scene-host
+npm install
+npm test             # vitest: model, director, village layout, generation, observe, feed, host, bundle/recordings
 npm run check        # tsc --noEmit
-npm run build        # dist/: manifest.json, index.html, town.js, town.css, assets/, recordings/, NOTICE.md, LICENSE
+npm run build        # dist/: manifest.json, index.html, town.js, town.css, recordings/, NOTICE.md, LICENSE
+npm run pack         # town.senatescene (deterministic STORED zip for Senate's Add Scene…)
 npm run serve        # http://127.0.0.1:8765/
 npm run record       # rewrite recordings/demo.ndjson and demo-large.ndjson (observe recordings) from the scripted day
-npm run map          # assets/works.tmj (open it in Tiled)
-npm run tiles        # assets/ground.png
 ```
 
 ## Content and shell
