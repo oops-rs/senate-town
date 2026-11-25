@@ -10,6 +10,7 @@
     "map": "node tools/make-map.mjs",
     "record": "node tools/record.mjs",
     "build": "node tools/build.mjs",
+    "pack": "node tools/build.mjs && node tools/pack.mjs",
     "test": "vitest run",
     "check": "tsc --noEmit",
     "serve": "python3 -m http.server -d dist 8765"
