@@ -1,15 +1,17 @@
 # Town assets
 
-The Works look is drawn by this repository's own code. No third-party
-art is used.
+All art in Town (terrain tiles, cobblestone streets, river and stone bridge,
+Town Square fountain, civic buildings, committee houses and cutaway interiors,
+16-bit RPG characters and walk cycles, props, monuments, trees, weather, and
+the train) is original 16-bit pixel art drawn at run time by this repository's
+own code (`src/art.ts`, `src/life.ts`). No third-party tilesets, sprites,
+maps, or packs are used.
 
 | File | Made by | Licence |
 | --- | --- | --- |
-| `ground.png` | `tools/make-tiles.swift` (Core Graphics) | the repository's licence |
-| `works.tmj` | `tools/make-map.mjs`, from `src/hub.ts`; open and edit it in Tiled | the repository's licence |
-| everything else (workshops, the sorting hall, archive, town hall, memory hall, people, workers, tools, capsules, tubes, signals, gates, monuments, trees, the districts, the train) | drawn at run time in `src/art.ts` (Phaser Graphics → textures) | the repository's licence |
+| village ground tilemap, buildings, cutaway interiors, characters, props, monuments, trees, train | drawn at run time in `src/art.ts` (integer pixel canvases, `NEAREST` filtering) | the repository's licence |
+| cat and birds | drawn at run time in `src/life.ts` (integer pixel canvases, `NEAREST` filtering) | the repository's licence |
 
-No CC0 pack fitted the rounded toy-machine look. Kenney's Tiny Town and Tiny
-Dungeon (CC0) were used by the earlier spike only, and have been removed. Any
-pack added later is recorded here with its source and licence. Only CC0 is
-allowed: no attribution-required, share-alike or unclear terms.
+Any third-party pack added later must be recorded here with its source and
+licence. Only CC0 is allowed: no attribution-required, share-alike or unclear
+terms.

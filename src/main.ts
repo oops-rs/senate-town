@@ -1,9 +1,7 @@
-// The Town page: the Works in a page of its own. Town is content: it gets
-// the Senate's public observe data and its environment from whatever shell
-// hosts it, through the scene host contract (host.ts), and asks the shell to
-// open links. The shell is the Senate app's web view, a parent page (the
-// browser reference shell) or, standalone, the in-page dev shell replaying
-// a recording.
+// The Town page: a 16-bit RPG village view of a Senate (Smallville × AI Town
+// style). Town is content: it gets public observe data and environment from
+// whatever shell hosts it through the scene host contract (host.ts), and asks
+// the shell to open links.
 import Phaser from "phaser";
 import type { Daylight } from "./art.ts";
 import { Feed } from "./feed.ts";
@@ -27,7 +25,7 @@ if (weather && ["clear", "cloudy", "rain", "windy", "fog"].includes(weather)) sc
 if (season && ["spring", "summer", "autumn", "winter"].includes(season)) scene.fixedSeason = season as Works["fixedSeason"];
 const ago = (s: number) => s < 3600 ? `${Math.round(s / 60)} min` : s < 86_400 ? `${Math.round(s / 3600)} h` : s < 14 * 86_400 ? `${Math.round(s / 86_400)} days` : `${Math.round(s / (7 * 86_400))} weeks`;
 
-/** What a hover card says: the who and what, never drawn on the town. */
+/** What a hover card says: who and what, never drawn as text on the village. */
 function describe(t: Target): string[] {
   switch (t.kind) {
     case "senator": {
@@ -35,30 +33,30 @@ function describe(t: Target): string[] {
       return [`${s.name}${s.chair ? " · chair" : ""}`, `${s.runtime} · ${s.mood}${t.committee ? ` · ${t.committee}` : " · town hall"}${s.watched ? " · someone is watching" : ""}`, ...(s.doing ? [s.doing] : [])];
     }
     case "elder": return [t.elder.name, `${t.elder.runtime} · last worked ${ago(t.elder.idle)} ago${t.elder.committee ? ` · ${t.elder.committee}` : ""}`, "opens its conversation in History"];
-    case "workshop": return [`${t.name} workshop`, `${t.senators} senator${t.senators === 1 ? "" : "s"}${t.waiting ? ` · ${t.waiting} waiting on you` : ""}`];
-    case "hall": return ["Sorting hall · senated --machine", "every message passes through bridge.sock", `${t.passed} sorted since you opened the town`];
-    case "archive": return ["Archive · the Senate server's logs", "each message stamped and filed by seq", ...t.filed.filter(([, n]) => n > 0).slice(0, 5).map(([c, n]) => `${c}: ${n} filed here`)];
-    case "townhall": return ["The Speaker's house · the desk", `docket ${t.docket}${t.secretary ? ` · ${t.secretary.name} ${t.secretary.mood}` : ""}`, "the secretaries work here; approvals' paperwork comes here"];
-    case "memory": return ["Memory hall · History", `${t.sessions} ended sessions, each readable`];
+    case "workshop": return [`${t.name} house`, `${t.senators} senator${t.senators === 1 ? "" : "s"}${t.waiting ? ` · ${t.waiting} waiting on you` : ""}`, "hover or zoom to look inside · double-click to focus"];
+    case "hall": return ["Post Office · senated --machine", "every message passes through bridge.sock", `${t.passed} sorted since you opened the town`];
+    case "archive": return ["Archive Library · the Senate server's logs", "each message stamped and filed by seq", ...t.filed.filter(([, n]) => n > 0).slice(0, 5).map(([c, n]) => `${c}: ${n} filed here`)];
+    case "townhall": return ["Town Hall · the Speaker's desk", `docket ${t.docket}${t.secretary ? ` · ${t.secretary.name} ${t.secretary.mood}` : ""}`, "the secretaries work here; approvals' paperwork comes here"];
+    case "memory": return ["Memory Hall · History", `${t.sessions} ended sessions, each readable`];
     case "capsule": return [`${t.from} → ${t.to ?? t.thread.committee}`, `“${firstWords(t.line, 12, 80)}”`,
-      `via the sorting hall, filed at ${t.thread.committee} #${t.thread.root}`, ...(t.held ? [`held: ${t.held}`] : [])];
-    case "signal": return [`${t.committee}'s signal`, t.held ? `red: ${t.held}` : "green: deliveries go straight in"];
+      `via the Post Office, filed at ${t.thread.committee} #${t.thread.root}`, ...(t.held ? [`held: ${t.held}`] : [])];
+    case "signal": return [`${t.committee}'s mailbox`, t.held ? `red: ${t.held}` : "green: deliveries go straight in"];
     case "gate": return [`Approval gate · ${t.approval.person ?? "a person"} must sign`, t.approval.ask, `for ${t.approval.senator}`];
     case "worker": return [`${({ bash: "builder", edit: "scribe", read: "librarian", grep: "searcher", mcp: "courier", web: "explorer" } as const)[t.tool]} · ${t.tool}`, `for ${t.senator}`, ...(t.target ? [t.target] : [])];
     case "monument": return t.next
       ? [`${t.project.name} · next release`, `${t.project.unreleased?.merges ?? 0} merged so far`, ...(t.project.unreleased?.plaques ?? [])]
       : [`${t.project.name} ${t.release!.name}${t.release!.date ? ` · ${t.release!.date}` : ""}`, `${t.release!.merges} merged`, ...t.release!.plaques];
     case "link": return [t.link === "parent" ? `${t.name} · the parent Senate` : t.link === "child" ? `${t.name} · a child Senate` : `${t.name} · a paired machine`,
-      `${t.link === "parent" ? "the uplink" : t.link === "child" ? "the road" : "the rail"} is ${t.up ? "up" : "down"}`];
+      `${t.link === "parent" ? "the north bridge" : t.link === "child" ? "the south lane" : "the railway"} is ${t.up ? "up" : "down"}`];
     case "waiting": return [`Waiting on ${t.person ?? "you"}`, t.thread.title, ...(t.thread.asker ? [`asked by ${t.thread.asker}`] : [])];
-    case "gatehouse": return ["The town gate", "explorers leave here for the web"];
-    case "civilian": return ["A townsperson"];
-    case "archived": return [`${t.archived.name} · archived${t.archived.closed ? ` ${t.archived.closed}` : ""}`, "its house kept as a monument",
+    case "gatehouse": return ["West Gatehouse", "explorers leave here for the web"];
+    case "civilian": return ["A villager"];
+    case "archived": return [`${t.archived.name} · archived${t.archived.closed ? ` ${t.archived.closed}` : ""}`, "its house kept in Monument Park",
       ...(t.archived.shipped ?? []).slice(0, 4)];
   }
 }
 
-/** Where a click goes: the link the observed row carries, opened unchanged. One function for every target. */
+/** Where a click goes: the link the observed row carries, opened unchanged. */
 function linkOf(t: Target): string | undefined {
   const st = scene.state, nav = st.navigation ?? {};
   switch (t.kind) {
@@ -95,7 +93,6 @@ scene.hooks = {
   },
 };
 
-// The dev shell only announces the links a click would open.
 window.addEventListener("senate-open", (e) => toast((e as CustomEvent<string>).detail));
 function toast(text: string) {
   const el = document.getElementById("toast")!;
@@ -104,20 +101,16 @@ function toast(text: string) {
   setTimeout(() => { el.hidden = true; }, 1600);
 }
 
-// A canvas backed at the screen's pixel density, shown at the page's size.
 const game = new Phaser.Game({
   type: Phaser.AUTO,
   parent: "town",
-  backgroundColor: "#bfe0a6",
+  backgroundColor: "#6ba652",
   banner: false,
   audio: { noAudio: true },
   disableContextMenu: true,
-  antialias: true,
-  // Art is drawn at 2–4× its shown size; seen from afar it is sampled from
-  // smaller copies (mipmaps), which is sharper and far cheaper for the GPU
-  // than reading the whole large texture for every few pixels.
-  render: { mipmapFilter: "LINEAR_MIPMAP_LINEAR", mipmapRegeneration: true } as Phaser.Types.Core.RenderConfig,
-  loader: { imageLoadType: "HTMLImageElement" },
+  pixelArt: true,
+  antialias: false,
+  roundPixels: true,
   scale: { mode: Phaser.Scale.NONE, width: innerWidth * dpr, height: innerHeight * dpr, zoom: 1 / dpr },
   fps: { limit: 30 },
   scene,
@@ -127,23 +120,10 @@ window.addEventListener("resize", () => {
   game.scale.setZoom(1 / dpr);
 });
 
-/**
- * How often the town draws, by what the person can see:
- * - in front (the window is key): 30 frames a second, 60 while panning or zooming;
- * - visible but not in front: 10;
- * - not visible at all (another page, the window hidden, occluded or
- *   minimised, the display asleep): paused, nothing runs;
- * - on battery or in Low Power Mode: at most 15.
- * Movement is by elapsed time, so any rate looks right. The shell says what
- * it knows (`visible`, and optionally `focused` and `power`); the page adds
- * what the browser knows (document visibility, window focus).
- */
 const pace = {
   shellVisible: true,
-  /** The shell says whether its window is in front (it knows better than DOM focus, which follows clicks); else the browser does. */
   shellFocused: undefined as boolean | undefined,
   lowPower: false,
-  // Without a shell signal: assume in front until the page is told otherwise (an iframe has no focus until clicked).
   docFocused: true,
   interactUntil: 0,
   limit: 30,
@@ -179,7 +159,6 @@ window.addEventListener("blur", () => { pace.docFocused = false; pace.apply(); }
 window.addEventListener("focus", () => { pace.docFocused = true; pace.apply(); });
 game.events.once("ready", () => pace.apply());
 
-// Under Reduce Motion the loop sleeps when the town is still; any input wakes it. Panning and zooming draw at 60.
 for (const type of ["pointermove", "pointerdown", "wheel", "keydown"]) {
   window.addEventListener(type, (e) => {
     scene.touch();
@@ -187,11 +166,10 @@ for (const type of ["pointermove", "pointerdown", "wheel", "keydown"]) {
   }, { passive: true });
 }
 
-// Calm: half the townspeople and no weather, kept in the shell's storage for this scene.
 const calmButton = document.getElementById("calm") as HTMLButtonElement;
 function showCalm(on: boolean) {
   calmButton.setAttribute("aria-pressed", String(on));
-  calmButton.title = on ? "Calm is on: fewer people, no weather" : "Calm: fewer people, no weather";
+  calmButton.title = on ? "Calm is on: fewer villagers, no weather" : "Calm: fewer villagers, no weather";
 }
 calmButton.addEventListener("click", () => {
   const on = !scene.calm;
@@ -200,8 +178,6 @@ calmButton.addEventListener("click", () => {
   void host?.storageSet("calm", on);
 });
 
-// The shell: the app's web view, a parent page's port, or the dev shell
-// (?demo=large for 30 committees, ?recording=<file> for another recording).
 const statusEl = document.getElementById("status")!;
 function status(state: Status) {
   statusEl.hidden = state === "ready";
@@ -239,11 +215,9 @@ function shell(): Binding | "parent" {
 }
 void connect(shell(), { status, environment, snapshot: (s) => feed.snapshot(s), event: (f) => feed.frame(f) }).then((h) => {
   host = h;
-  // The person's own setting, kept by the shell.
   void host.storageGet("calm").then((v) => { if (v === true) { scene.setCalm(true); showCalm(true); } });
 });
 
-/** Controls for tests and the app's snapshot hook (no data goes in here). */
 const api = {
   setOptions(o: { time?: Daylight }) { if (o.time) scene.fixedTime = o.time; scene.touch(); },
   fit() { scene.fit(); },
@@ -253,9 +227,7 @@ const api = {
   zoom(f: number) { scene.zoomAt(f, (innerWidth / 2) * dpr, (innerHeight / 2) * dpr); },
   stats() { return scene.stats(); },
   probe(click = false) { return scene.probe(click); },
-  /** A texture as a data URL (to look at a walk sheet). */
   texture(key: string) { return scene.textures.exists(key) ? scene.textures.getBase64(key, "__BASE") : ""; },
-  /** What the town draws, by kind (measurement). */
   counts() {
     const out: Record<string, number> = {};
     const walk = (list: Phaser.GameObjects.GameObject[]) => {
@@ -267,11 +239,8 @@ const api = {
     walk(scene.children.list);
     return out;
   },
-  /** Hide every object of a kind (measurement: what it costs to draw). */
   hide(type: string) { for (const o of scene.children.list) if (o.type === type) (o as unknown as { setVisible(v: boolean): void }).setVisible(false); },
-  /** Stop drawing one kind of thing (measurement). */
   ablate(kind: string) { scene.ablate(kind); },
-  /** Draw at another backing resolution (measurement: what full resolution costs). */
   resolution(d: number) { const cam = scene.cameras.main, c = cam.midPoint.clone(), z = cam.zoom * d / (game.scale.width / innerWidth); game.scale.resize(innerWidth * d, innerHeight * d); game.scale.setZoom(1 / d); cam.setZoom(z); cam.centerOn(c.x, c.y); },
   textures() { return scene.textures.getTextureKeys().filter((k) => k.startsWith("walk-")); },
 };

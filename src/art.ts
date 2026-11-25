@@ -1,27 +1,46 @@
-// The Works' art, drawn in code: one warm, rounded, toy-like palette and
-// every piece made once as a texture (at twice the size it is shown, so it
-// stays crisp when zoomed). Nothing here is taken from a game or a pack.
+// Original 16-bit top-down RPG pixel art, drawn entirely in code on integer
+// pixel canvases (1 art pixel = 2×2 world pixels, NEAREST filtering). No
+// third-party tilesets, sprites or packs are used.
 import Phaser from "phaser";
 import type { Runtime } from "./model.ts";
 import { COLOURS, HAIRS, houseKey, houseSize, lookKey, SKINS, type HouseSpec, type Look } from "./gen.ts";
+import { LOT_TILES, TILE, type Plan, type TileRect } from "./layout.ts";
+import type { Season } from "./world.ts";
 
+/** World pixels per 1 art pixel. */
+export const PX = 2;
 
-export const INK = 0x3d3a50;
+export const INK = 0x262130;
 export const PALETTE = {
-  grass: 0xbfe0a6, grassDark: 0xa9d18e, paving: 0xf3e6cd, pavingEdge: 0xdcc7a3, road: 0xe9d7b5,
-  glass: 0xe4f4ff, glassEdge: 0x7fb0d0, glassLit: 0xb9ecff,
-  lit: 0xffe39a, unlit: 0x6f7fa3, skin: 0xf3d2b3, hair: 0x5a4334,
-  red: 0xff5a5f, green: 0x47d16c, amber: 0xffc145, white: 0xffffff, cream: 0xfff6e2,
-  copper: 0x4fa3a0, copperDark: 0x3a7f7c, navy: 0x4b5b8c, navyDark: 0x37446d,
-  water: 0x8fd3f0, rail: 0x8a7967, wood: 0xc79a6b, woodDark: 0x9a7350, leaf: 0x7cc46b, leafDark: 0x5ea552,
-  stone: 0xd9d3c7, stoneDark: 0xb3aa98,
+  grass: 0x6ca652, grassLight: 0x7cb55f, grassDark: 0x588f44, grassDeep: 0x457536,
+  paving: 0xe3d8c2, pavingEdge: 0xb6a78d, road: 0xcabca1, roadDark: 0xa6977d, path: 0xd5b98b, pathDark: 0xb89868,
+  glass: 0xdaf0ff, glassEdge: 0x6c9cbd, glassLit: 0xb4ecff,
+  lit: 0xffe28a, litBright: 0xfff5c7, unlit: 0x4a5875,
+  skin: 0xf3d2b3, hair: 0x5a4334,
+  red: 0xd94e4e, green: 0x46b865, amber: 0xf0b43c, white: 0xffffff, cream: 0xf6ebd6,
+  copper: 0x47948f, copperDark: 0x326e6b, navy: 0x465882, navyDark: 0x2f3d5e,
+  water: 0x4b94bd, waterDeep: 0x37769e, waterLight: 0x73b9db, waterFoam: 0xd8f3fa,
+  rail: 0x767c8a, wood: 0xb88454, woodLight: 0xd19f6e, woodDark: 0x7a5233,
+  leaf: 0x5ca34b, leafLight: 0x7cc263, leafDark: 0x3e7835,
+  stone: 0xcbc6ba, stoneLight: 0xe2ddd2, stoneDark: 0x8f8a7f,
+  terracotta: 0xc45d41, terracottaDark: 0x99422c,
 };
-/** The workshops' wall colours: soft and distinct, one per committee by hash. */
-export const WALLS = [0xf6a97a, 0x9fd3ea, 0xbfe39a, 0xffd57e, 0xd6bfe6, 0xf7b2cf, 0xa9c8ff, 0xffbf9b, 0xa6e3d0, 0xe8c79c];
-export const RUNTIME: Record<Runtime, number> = { claude: 0xf08c4a, codex: 0x6c63ff, agy: 0x18a7a7, other: 0x8a8aa3 };
-export const TOOLS = { bash: 0xe07b39, edit: 0x8e6ccf, read: 0x3f9b5a, grep: 0x3b86c6, mcp: 0xffc145, web: 0xd2508f } as const;
 
-/** The time of day: from the local clock, or night when the app is dark. */
+export const RUNTIME: Record<Runtime, number> = {
+  claude: 0xe67e40,
+  codex: 0x5e5ce6,
+  agy: 0x1e9e9e,
+  other: 0x7c7f99,
+};
+export const TOOLS = {
+  bash: 0xd97336,
+  edit: 0x8661c9,
+  read: 0x3b9658,
+  grep: 0x3882c2,
+  mcp: 0xeeb238,
+  web: 0xcf4a86,
+} as const;
+
 export type Daylight = "dawn" | "day" | "dusk" | "night";
 export function daylight(date: Date, dark: boolean): Daylight {
   if (dark) return "night";
@@ -31,519 +50,1330 @@ export function daylight(date: Date, dark: boolean): Daylight {
   if (h >= 17.5 && h < 20) return "dusk";
   return "night";
 }
-/** The light over the town: a multiplied wash (and whether windows glow). */
 export const WASH: Record<Daylight, { color: number; alpha: number; glow: boolean }> = {
-  dawn: { color: 0xffc7b5, alpha: 0.28, glow: false },
+  dawn: { color: 0xffc8b0, alpha: 0.24, glow: false },
   day: { color: 0xffffff, alpha: 0, glow: false },
-  dusk: { color: 0xff9f62, alpha: 0.3, glow: true },
-  night: { color: 0x1c2a5a, alpha: 0.62, glow: true },
+  dusk: { color: 0xff9b5c, alpha: 0.30, glow: true },
+  night: { color: 0x1a2654, alpha: 0.58, glow: true },
 };
 
-const S = 2; // textures are drawn at twice their shown size
+// MARK: Integer pixel canvas helpers
 
-type G = Phaser.GameObjects.Graphics;
+function hexStr(c: number, a = 1): string {
+  const r = (c >> 16) & 255, g = (c >> 8) & 255, b = c & 255;
+  return a >= 1 ? `rgb(${r},${g},${b})` : `rgba(${r},${g},${b},${a})`;
+}
 
-/** Small pieces seen up close inside a house are drawn at four times their size. */
-const FINE = 4;
-const fine = new Set<string>();
+export function shade(c: number, delta: number): number {
+  const clamp = (v: number) => Math.max(0, Math.min(255, Math.round(v)));
+  const r = clamp(((c >> 16) & 255) + delta);
+  const g = clamp(((c >> 8) & 255) + delta);
+  const b = clamp((c & 255) + delta);
+  return (r << 16) | (g << 8) | b;
+}
 
-// MARK: The atlas
-//
-// Every piece of art is drawn once (antialiased, on a canvas) and then
-// packed into a few shared pages, each one texture: so the whole town is
-// drawn from a handful of textures and the renderer batches it into a few
-// draw calls instead of switching texture for nearly every sprite. A
-// piece's frame on its page is named by its key.
+function mixHex(a: number, b: number, t: number): number {
+  const ch = (c: number, s: number) => (c >> s) & 255;
+  const lerp = (x: number, y: number) => Math.round(x + (y - x) * t);
+  return (lerp(ch(a, 16), ch(b, 16)) << 16) | (lerp(ch(a, 8), ch(b, 8)) << 8) | lerp(ch(a, 0), ch(b, 0));
+}
 
-const PAGE = 2048, PAD = 2;
-interface Page { key: string; tex: Phaser.Textures.DynamicTexture; x: number; y: number; row: number }
-const pages: Page[] = [];
-/** Key → the page it was packed on. */
-const packed = new Map<string, string>();
+function hash2(x: number, y: number): number {
+  let n = (Math.imul(x, 374761393) + Math.imul(y, 668265263)) | 0;
+  n = Math.imul(n ^ (n >>> 13), 1274126177);
+  return ((n ^ (n >>> 16)) >>> 0) / 4294967296;
+}
 
-/** Has this piece been made yet? */
-export const made = (key: string) => packed.has(key);
+class Pix {
+  readonly ctx: CanvasRenderingContext2D;
+  readonly w: number;
+  readonly h: number;
 
-function pack(scene: Phaser.Scene, key: string, tmp: string, w: number, h: number, frames?: [string, number, number, number, number][]) {
-  let page = pages.find((p) => (p.x + w <= PAGE && p.y + Math.max(p.row, h) <= PAGE) || (p.y + p.row + PAD + h <= PAGE && w <= PAGE));
-  if (!page || w > PAGE || h > PAGE) {
-    if (w > PAGE || h > PAGE) throw new Error(`art ${key} is larger than an atlas page`);
-    const pkey = `atlas-${pages.length}`;
-    page = { key: pkey, tex: scene.textures.addDynamicTexture(pkey, PAGE, PAGE)!, x: 0, y: 0, row: 0 };
-    pages.push(page);
+  constructor(canvas: HTMLCanvasElement) {
+    this.w = canvas.width;
+    this.h = canvas.height;
+    this.ctx = canvas.getContext("2d")!;
+    this.ctx.imageSmoothingEnabled = false;
   }
-  if (page.x + w > PAGE) { page.x = 0; page.y += page.row + PAD; page.row = 0; }
-  const { x, y } = page;
-  page.tex.stamp(tmp, undefined, x, y, { originX: 0, originY: 0 });
-  page.tex.render();
-  page.tex.add(key, 0, x, y, w, h);
-  for (const [name, fx, fy, fw, fh] of frames ?? []) page.tex.add(name, 0, x + fx, y + fy, fw, fh);
-  page.x += w + PAD;
-  page.row = Math.max(page.row, h);
-  packed.set(key, page.key);
+
+  p(x: number, y: number, c: number, a = 1) {
+    this.ctx.fillStyle = hexStr(c, a);
+    this.ctx.fillRect(Math.floor(x), Math.floor(y), 1, 1);
+  }
+
+  rect(x: number, y: number, w: number, h: number, c: number, a = 1) {
+    if (w <= 0 || h <= 0) return;
+    this.ctx.fillStyle = hexStr(c, a);
+    this.ctx.fillRect(Math.floor(x), Math.floor(y), Math.floor(w), Math.floor(h));
+  }
+
+  hline(x: number, y: number, len: number, c: number, a = 1) { this.rect(x, y, len, 1, c, a); }
+  vline(x: number, y: number, len: number, c: number, a = 1) { this.rect(x, y, 1, len, c, a); }
+
+  box(x: number, y: number, w: number, h: number, fill: number, edge = INK) {
+    this.rect(x, y, w, h, edge);
+    if (w > 2 && h > 2) this.rect(x + 1, y + 1, w - 2, h - 2, fill);
+  }
+
+  /** Classic 16-bit RPG cut-corner box. */
+  rbox(x: number, y: number, w: number, h: number, fill: number, edge = INK) {
+    this.rect(x + 1, y, w - 2, h, edge);
+    this.rect(x, y + 1, w, h - 2, edge);
+    if (w > 2 && h > 2) this.rect(x + 1, y + 1, w - 2, h - 2, fill);
+  }
+
+  ellipse(cx: number, cy: number, rx: number, ry: number, c: number, a = 1) {
+    this.ctx.fillStyle = hexStr(c, a);
+    const x0 = Math.floor(cx - rx), x1 = Math.ceil(cx + rx);
+    const y0 = Math.floor(cy - ry), y1 = Math.ceil(cy + ry);
+    for (let y = y0; y <= y1; y++) {
+      for (let x = x0; x <= x1; x++) {
+        const dx = (x + 0.5 - cx) / rx, dy = (y + 0.5 - cy) / ry;
+        if (dx * dx + dy * dy <= 1) this.ctx.fillRect(x, y, 1, 1);
+      }
+    }
+  }
+
+  circle(cx: number, cy: number, r: number, c: number, a = 1) { this.ellipse(cx, cy, r, r, c, a); }
+
+  line(x0: number, y0: number, x1: number, y1: number, c: number, a = 1) {
+    let ix0 = Math.round(x0), iy0 = Math.round(y0), ix1 = Math.round(x1), iy1 = Math.round(y1);
+    const dx = Math.abs(ix1 - ix0), sx = ix0 < ix1 ? 1 : -1;
+    const dy = -Math.abs(iy1 - iy0), sy = iy0 < iy1 ? 1 : -1;
+    let err = dx + dy;
+    this.ctx.fillStyle = hexStr(c, a);
+    for (;;) {
+      this.ctx.fillRect(ix0, iy0, 1, 1);
+      if (ix0 === ix1 && iy0 === iy1) break;
+      const e2 = 2 * err;
+      if (e2 >= dy) { err += dy; ix0 += sx; }
+      if (e2 <= dx) { err += dx; iy0 += sy; }
+    }
+  }
 }
 
-function make(scene: Phaser.Scene, key: string, w: number, h: number, draw: (g: G) => void, scale = S) {
-  if (packed.has(key)) return;
-  const g = scene.make.graphics({ x: 0, y: 0 }, false);
-  g.scaleX = scale;
-  g.scaleY = scale;
-  draw(g);
-  const W = Math.ceil(w * scale), H = Math.ceil(h * scale);
-  g.generateTexture("__art", W, H);
-  g.destroy();
-  pack(scene, key, "__art", W, H);
-  scene.textures.remove("__art");
-  if (scale === FINE) fine.add(key);
+/** Create or return a crisp NEAREST-filtered 1× pixel-art texture. */
+function makePx(scene: Phaser.Scene, key: string, w: number, h: number, draw: (g: Pix) => void): string {
+  if (scene.textures.exists(key)) return key;
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  draw(new Pix(c));
+  const tex = scene.textures.addCanvas(key, c);
+  tex?.setFilter(Phaser.Textures.FilterMode.NEAREST);
+  return key;
 }
 
-/** An image of a piece of art, unscaled (the texture's own pixels). */
 export function image(scene: Phaser.Scene, x: number, y: number, key: string): Phaser.GameObjects.Image {
-  return scene.add.image(x, y, packed.get(key) ?? key, packed.has(key) ? key : undefined);
+  return scene.add.image(x, y, key);
 }
 
-/** Show a texture at its intended size. */
+/** Show a pixel-art texture at world scale (1 art px = PX world px). */
 export function sprite(scene: Phaser.Scene, x: number, y: number, key: string): Phaser.GameObjects.Image {
-  return image(scene, x, y, key).setScale(1 / (fine.has(key) ? FINE : S));
+  return scene.add.image(x, y, key).setScale(PX);
 }
 
-/** Swap an image's art (same scale rules as when it was made). */
 export function retexture(img: Phaser.GameObjects.Image, key: string): Phaser.GameObjects.Image {
-  return img.setTexture(packed.get(key) ?? key, packed.has(key) ? key : undefined);
+  return img.setTexture(key);
 }
 
-/** Which piece of art an image shows. */
-export const artOf = (img: Phaser.GameObjects.Image) => (packed.has(img.frame.name) ? img.frame.name : img.texture.key);
+export const artOf = (img: Phaser.GameObjects.Image) => img.texture.key;
+export const where = (key: string): [string, string | undefined] => [key, undefined];
+export const unit = () => PX;
 
-/** The page and frame of a piece (particles, and anything else that takes both). */
-export const where = (key: string): [string, string | undefined] => [packed.get(key) ?? key, packed.has(key) ? key : undefined];
+// Harmonious cozy 16-bit village architectural palettes mapped from card colour indices.
+const ROOF_PALETTE = [
+  0xc45d41, // terracotta
+  0x4f6d8a, // slate blue
+  0x4f7d54, // moss green
+  0xc9923e, // warm ochre
+  0x7a5470, // plum slate
+  0xb85866, // rose tile
+  0x4a7885, // coastal teal
+  0x9e6742, // cedar shingle
+  0x577c72, // verdigris
+  0xa8764b, // honey thatch
+  0x6b645c, // charcoal stone
+  0x5a6d91, // indigo slate
+];
 
-/** The scale that shows a texture at its intended size (for scaling it further). */
-export const unit = (key: string) => 1 / (fine.has(key) ? FINE : S);
+const WALL_PALETTE = [
+  0xf2e4cc, // warm cream plaster
+  0xe8eff2, // pale sky clapboard
+  0xe9f0db, // sage plaster
+  0xf7ebcb, // buttercream
+  0xeee5f2, // soft lavender plaster
+  0xf5e2e5, // blush stucco
+  0xe4ecf7, // powder blue
+  0xf2dfd0, // peach stucco
+  0xe0f0ea, // mint plaster
+  0xebd8be, // warm sandstone
+  0xe2dad0, // limestone
+  0xdde4ec, // mist grey
+];
 
-type V = Phaser.Math.Vector2;
-const pts = (list: [number, number][]) => list.map(([x, y]) => new Phaser.Math.Vector2(x, y)) as V[];
+const roofColour = (i: number) => ROOF_PALETTE[i % ROOF_PALETTE.length]!;
+const wallColour = (i: number) => WALL_PALETTE[i % WALL_PALETTE.length]!;
 
-function roundRect(g: G, x: number, y: number, w: number, h: number, r: number, fill: number, stroke?: number, lw = 2) {
-  g.fillStyle(fill, 1).fillRoundedRect(x, y, w, h, r);
-  if (stroke !== undefined) g.lineStyle(lw, stroke, 1).strokeRoundedRect(x, y, w, h, r);
+// MARK: Ground tilemap (16×16 art pixels per 32×32 world tile)
+
+/**
+ * Paint the entire village ground onto one crisp NEAREST pixel-art canvas:
+ * seasonal meadow grass, wildflowers, cobblestone streets with curbs, Town
+ * Square flagstones, gravel footpaths, river + grassy banks + stone arch
+ * bridge, railway sleepers & rails, and house garden walks.
+ */
+export function paintGroundMap(scene: Phaser.Scene, p: Plan, season: Season): { key: string; x: number; y: number } {
+  const key = "village-ground";
+  if (scene.textures.exists(key)) scene.textures.remove(key);
+  const T = TILE / PX; // 16 art px per tile
+  const cols = p.tiles.x1 - p.tiles.x0;
+  const rows = p.tiles.y1 - p.tiles.y0;
+  const W = cols * T, H = rows * T;
+  const c = document.createElement("canvas");
+  c.width = W;
+  c.height = H;
+  const g = new Pix(c);
+
+  const toPx = (tx: number) => (tx - p.tiles.x0) * T;
+  const toPy = (ty: number) => (ty - p.tiles.y0) * T;
+
+  const inRects = (rects: TileRect[], tx: number, ty: number) =>
+    rects.some((r) => tx >= r.tx && tx < r.tx + r.tw && ty >= r.ty && ty < r.ty + r.th);
+
+  // Seasonal meadow palette.
+  const meadow = season === "winter"
+    ? { base: 0xe3ecf2, light: 0xf1f6fa, dark: 0xcbd8e3, tuft: 0xb7c7d6, flowers: [0xcfe0ed, 0xffffff] }
+    : season === "autumn"
+      ? { base: 0x8d9f4d, light: 0x9eb058, dark: 0x76883f, tuft: 0x627332, flowers: [0xd9843b, 0xe8b948, 0xc2553a] }
+      : season === "spring"
+        ? { base: 0x73b058, light: 0x85c267, dark: 0x5f9948, tuft: 0x4b8038, flowers: [0xffc6d9, 0xfff5c2, 0xffffff, 0xb8d9ff] }
+        : { base: 0x6ba652, light: 0x7cb860, dark: 0x599143, tuft: 0x477a35, flowers: [0xfff2b2, 0xf28c8c, 0xa8d4f5, 0xffffff] };
+
+  // 1. Lush organic meadow grass (no rigid tile-square grid: soft pixel tufts, clover & wildflowers).
+  g.rect(0, 0, W, H, meadow.base);
+  for (let ty = p.tiles.y0; ty < p.tiles.y1; ty++) {
+    for (let tx = p.tiles.x0; tx < p.tiles.x1; tx++) {
+      const px = toPx(tx), py = toPy(ty);
+      const r = hash2(tx, ty);
+      // Soft organic dapple patches crossing tile boundaries subtly.
+      if (r < 0.32) {
+        g.ellipse(px + 8, py + 8, 6 + Math.floor(r * 8), 5 + Math.floor(r * 6), meadow.light);
+      } else if (r > 0.72) {
+        g.ellipse(px + 8, py + 8, 6 + Math.floor((1 - r) * 8), 5, meadow.dark);
+      }
+      // Classic 16-bit pixel grass blade tufts.
+      for (let k = 0; k < 4; k++) {
+        const rx = Math.floor(hash2(tx * 7 + k, ty * 13) * 14) + 1;
+        const ry = Math.floor(hash2(tx * 11, ty * 5 + k) * 14) + 1;
+        g.p(px + rx, py + ry, meadow.tuft);
+        g.p(px + rx + 1, py + ry - 1, meadow.light);
+      }
+      // Occasional tiny wildflowers & clover on meadow tiles.
+      if (r > 0.84) {
+        const fc = meadow.flowers[Math.floor(hash2(tx + 9, ty - 4) * meadow.flowers.length)]!;
+        const fx = px + 3 + Math.floor(hash2(tx * 3, ty) * 10);
+        const fy = py + 3 + Math.floor(hash2(tx, ty * 3) * 10);
+        g.p(fx, fy + 1, meadow.tuft);
+        g.p(fx, fy, fc);
+        if (r > 0.91) g.p(fx + 3, fy + 2, meadow.flowers[(tx + ty) & 1]!);
+      }
+    }
+  }
+
+  // 2. Gravel / dirt footpaths (Elders' Garden promenade, Monument Park walks, country lanes).
+  const drawPathTile = (tx: number, ty: number) => {
+    const px = toPx(tx), py = toPy(ty);
+    const cBase = season === "winter" ? 0xd0d4da : PALETTE.path;
+    const cDark = season === "winter" ? 0xb5bcc6 : PALETTE.pathDark;
+    const cLight = shade(cBase, 14);
+    g.rect(px, py, T, T, cBase);
+    // Rounded grass-edge corners where grass borders the footpath.
+    if (!inRects(p.paths, tx, ty - 1) && !inRects(p.streets, tx, ty - 1)) {
+      g.hline(px, py, T, meadow.dark);
+      for (let x = 1; x < T; x += 3) g.p(px + x, py + 1, meadow.tuft);
+    }
+    if (!inRects(p.paths, tx, ty + 1) && !inRects(p.streets, tx, ty + 1)) g.hline(px, py + T - 1, T, cDark);
+    if (!inRects(p.paths, tx - 1, ty) && !inRects(p.streets, tx - 1, ty)) g.vline(px, py, T, cDark);
+    if (!inRects(p.paths, tx + 1, ty) && !inRects(p.streets, tx + 1, ty)) g.vline(px + T - 1, py, T, cDark);
+    // Subtle pebbles.
+    for (let k = 0; k < 5; k++) {
+      const rx = 2 + Math.floor(hash2(tx * 17 + k, ty * 23) * (T - 4));
+      const ry = 2 + Math.floor(hash2(tx * 29, ty * 19 + k) * (T - 4));
+      g.p(px + rx, py + ry, k % 2 ? cDark : cLight);
+    }
+  };
+  for (let ty = p.tiles.y0; ty < p.tiles.y1; ty++) {
+    for (let tx = p.tiles.x0; tx < p.tiles.x1; tx++) {
+      if (inRects(p.paths, tx, ty)) drawPathTile(tx, ty);
+    }
+  }
+
+  // 3. Cobblestone streets with warm dressed curbs.
+  const isPaved = (tx: number, ty: number) => inRects(p.streets, tx, ty) || inRects(p.plazas, tx, ty);
+  for (let ty = p.tiles.y0; ty < p.tiles.y1; ty++) {
+    for (let tx = p.tiles.x0; tx < p.tiles.x1; tx++) {
+      if (!inRects(p.streets, tx, ty)) continue;
+      const px = toPx(tx), py = toPy(ty);
+      const stoneBase = season === "winter" ? 0xc8ccd4 : PALETTE.road;
+      const mortar = season === "winter" ? 0x9aa0ad : PALETTE.roadDark;
+      g.rect(px, py, T, T, mortar);
+      // Staggered 16-bit cobblestones (4×4 and 5×4 blocks).
+      for (let row = 0; row < 4; row++) {
+        const off = (row % 2) * 2;
+        for (let col = 0; col < 4; col++) {
+          const sx = px + ((col * 4 + off) % T);
+          const sy = py + row * 4;
+          const sw = Math.min(3, px + T - sx);
+          const delta = Math.floor((hash2(tx * 4 + col, ty * 4 + row) - 0.5) * 22);
+          g.rect(sx, sy, sw, 3, shade(stoneBase, delta));
+          if (delta > 3) g.p(sx, sy, shade(stoneBase, delta + 12));
+        }
+      }
+      // Crisp stone curbs along grass borders.
+      const curbLight = shade(stoneBase, 20), curbDark = shade(mortar, -22);
+      if (!isPaved(tx, ty - 1)) { g.hline(px, py, T, curbDark); g.hline(px, py + 1, T, curbLight); }
+      if (!isPaved(tx, ty + 1)) { g.hline(px, py + T - 1, T, curbDark); g.hline(px, py + T - 2, T, curbLight); }
+      if (!isPaved(tx - 1, ty)) { g.vline(px, py, T, curbDark); g.vline(px + 1, py, T, curbLight); }
+      if (!isPaved(tx + 1, ty)) { g.vline(px + T - 1, py, T, curbDark); g.vline(px + T - 2, py, T, curbLight); }
+    }
+  }
+
+  // 4. Town Square flagstone plaza with inlaid ornamental stone border.
+  for (const pl of p.plazas) {
+    const px0 = toPx(pl.tx), py0 = toPy(pl.ty), pw = pl.tw * T, ph = pl.th * T;
+    const base = season === "winter" ? 0xd9dde6 : PALETTE.paving;
+    const edge = season === "winter" ? 0xaeb5c2 : PALETTE.pavingEdge;
+    g.box(px0, py0, pw, ph, base, shade(edge, -24));
+    // Large 8×8 dressed flagstones.
+    for (let y = 2; y < ph - 2; y += 8) {
+      for (let x = 2; x < pw - 2; x += 8) {
+        const d = Math.floor((hash2(x, y) - 0.5) * 14);
+        g.rect(px0 + x, py0 + y, 7, 7, shade(base, d));
+        g.hline(px0 + x, py0 + y, 7, shade(base, d + 10));
+      }
+    }
+    // Ornamental inner border ring around the square.
+    g.box(px0 + 8, py0 + 8, pw - 16, ph - 16, base, edge);
+    for (let y = 10; y < ph - 10; y += 8) {
+      for (let x = 10; x < pw - 10; x += 8) {
+        const d = Math.floor((hash2(x + 3, y + 7) - 0.5) * 12);
+        g.rect(px0 + x, py0 + y, 7, 7, shade(base, d));
+      }
+    }
+    // Four lush corner flowerbeds right inside the plaza corners.
+    const beds = [
+      [px0 + 12, py0 + 12], [px0 + pw - 28, py0 + 12],
+      [px0 + 12, py0 + ph - 24], [px0 + pw - 28, py0 + ph - 24],
+    ] as const;
+    for (const [bx, by] of beds) {
+      g.rbox(bx, by, 16, 12, meadow.dark, shade(edge, -20));
+      g.rect(bx + 2, by + 2, 12, 8, meadow.base);
+      const cols2 = [0xe86a78, 0xffd966, 0x8cc4f0, 0xffffff];
+      for (let i = 0; i < 6; i++) g.p(bx + 3 + (i % 3) * 4, by + 3 + Math.floor(i / 3) * 4, cols2[i % cols2.length]!);
+    }
+  }
+
+  // 5. Monument Park landscaped plaza & stone border.
+  {
+    const m = p.civic.monuments;
+    const mx = toPx(m.tx), my = toPy(m.ty), mw = m.tw * T, mh = m.th * T;
+    // Neat trimmed low hedge border around the park with openings on north, south & east.
+    const hedge = season === "winter" ? 0xb5c9bc : PALETTE.leafDark;
+    const hedgeHi = season === "winter" ? 0xdce8e0 : PALETTE.leaf;
+    const drawHedge = (x: number, y: number, w: number, h: number) => {
+      g.box(x, y, w, h, hedge, INK);
+      g.hline(x + 1, y + 1, Math.max(0, w - 2), hedgeHi);
+    };
+    drawHedge(mx + 2, my + 2, mw * 0.36, 6);
+    drawHedge(mx + mw * 0.62, my + 2, mw * 0.36, 6);
+    drawHedge(mx + 2, my + mh - 8, mw * 0.36, 6);
+    drawHedge(mx + mw * 0.62, my + mh - 8, mw * 0.36, 6);
+    drawHedge(mx + 2, my + 8, 6, mh - 16);
+  }
+
+  // 6. Front garden walks & neat yard borders for each committee lot and civic building.
+  const drawWalk = (cxWorld: number, yTopWorld: number, yBotWorld: number) => {
+    const cx = Math.round((cxWorld / TILE - p.tiles.x0) * T);
+    const y0 = Math.round((yTopWorld / TILE - p.tiles.y0) * T);
+    const y1 = Math.round((yBotWorld / TILE - p.tiles.y0) * T);
+    for (let y = y0; y <= y1; y += 3) {
+      g.rbox(cx - 5, y, 10, 3, PALETTE.paving, PALETTE.roadDark);
+    }
+  };
+  for (const s of p.slots.values()) {
+    drawWalk(s.at.x, s.at.y + 42, s.door.y - 4);
+    // Subtle wooden picket fence along the front curb of the yard (leaving the walk open).
+    const fx0 = toPx(s.tx) + 4, fx1 = toPx(s.tx + LOT_TILES.tw) - 4;
+    const fy = toPy(s.ty + LOT_TILES.th) - 4;
+    const cx = Math.round((s.at.x / TILE - p.tiles.x0) * T);
+    for (let x = fx0; x <= fx1; x += 4) {
+      if (Math.abs(x - cx) < 10) continue;
+      g.vline(x, fy, 4, PALETTE.cream);
+      g.p(x, fy + 4, INK);
+    }
+    g.hline(fx0, fy + 2, Math.max(0, cx - 10 - fx0), PALETTE.pavingEdge);
+    g.hline(cx + 10, fy + 2, Math.max(0, fx1 - (cx + 10)), PALETTE.pavingEdge);
+  }
+  for (const b of [p.civic.townHall, p.civic.postOffice, p.civic.archive, p.civic.memory]) {
+    drawWalk(b.door.x, b.at.y + 46, b.door.y - 4);
+  }
+
+  // 7. North River with earthy banks, overhanging grass, water ripples, reeds & Stone Arch Bridge.
+  {
+    const r = p.river;
+    const rx = toPx(r.tx), ry = toPy(r.ty), rw = r.tw * T, rh = r.th * T;
+    // Upper bank earth + overhanging grass shadow.
+    g.rect(rx, ry, rw, 5, PALETTE.woodDark);
+    g.hline(rx, ry, rw, meadow.tuft);
+    g.hline(rx, ry + 5, rw, PALETTE.waterDeep);
+    // Water body.
+    g.rect(rx, ry + 6, rw, rh - 10, PALETTE.water);
+    g.rect(rx, ry + 6, rw, 5, PALETTE.waterDeep);
+    // Lower bank lip.
+    g.hline(rx, ry + rh - 4, rw, PALETTE.waterLight);
+    g.rect(rx, ry + rh - 3, rw, 3, PALETTE.woodDark);
+    g.hline(rx, ry + rh - 1, rw, meadow.tuft);
+    // Shimmering pixel ripples & lily pads.
+    for (let x = rx + 6; x < rx + rw - 8; x += 14) {
+      const n = hash2(x, ry);
+      const wy = ry + 11 + Math.floor(n * (rh - 20));
+      g.hline(x, wy, 5 + Math.floor(n * 4), n > 0.65 ? PALETTE.waterFoam : PALETTE.waterLight);
+      if (n < 0.14) {
+        g.circle(x + 3, ry + rh - 8, 2.5, PALETTE.leafDark);
+        g.p(x + 2, ry + rh - 9, PALETTE.leafLight);
+      }
+    }
+    // Arched Stone Bridge across the river along Bridge Avenue!
+    const br = p.bridge;
+    const bx = toPx(br.tx), by = toPy(br.ty), bw = br.tw * T, bh = br.th * T;
+    // Bridge shadow on water.
+    g.rect(bx + bw, ry + 6, 4, rh - 10, PALETTE.waterDeep);
+    // Stone deck.
+    g.box(bx, by, bw, bh, PALETTE.paving, INK);
+    for (let y = by + 3; y < by + bh - 3; y += 5) {
+      g.hline(bx + 4, y, bw - 8, PALETTE.pavingEdge);
+    }
+    // Stone parapet walls on left & right of bridge + corner bollards.
+    g.box(bx, by, 4, bh, PALETTE.stoneLight, INK);
+    g.box(bx + bw - 4, by, 4, bh, PALETTE.stoneLight, INK);
+    for (const py2 of [by, by + bh - 5, Math.floor(by + bh / 2) - 2]) {
+      g.box(bx - 1, py2, 6, 5, PALETTE.stone, INK);
+      g.box(bx + bw - 5, py2, 6, 5, PALETTE.stone, INK);
+    }
+  }
+
+  // 8. East Railway (ballast, timber sleepers, dual steel rails, wooden station platform).
+  {
+    const rx = Math.round((p.civic.rail / TILE - p.tiles.x0) * T);
+    g.rect(rx - 9, 0, 18, H, season === "winter" ? 0xc2c8d2 : 0x9e9586);
+    for (let y = 2; y < H; y += 6) {
+      g.rect(rx - 7, y, 14, 2, PALETTE.woodDark);
+      g.hline(rx - 7, y, 14, PALETTE.wood);
+    }
+    g.vline(rx - 4, 0, H, PALETTE.rail);
+    g.vline(rx - 3, 0, H, PALETTE.stoneLight);
+    g.vline(rx + 3, 0, H, PALETTE.rail);
+    g.vline(rx + 4, 0, H, PALETTE.stoneLight);
+    // Wooden station platform beside the track.
+    const sx = Math.round((p.civic.station.x / TILE - p.tiles.x0) * T) - 10;
+    const sy = Math.round((p.civic.station.y / TILE - p.tiles.y0) * T) - 22;
+    g.box(sx, sy, 16, 44, PALETTE.woodLight, INK);
+    for (let y = sy + 4; y < sy + 42; y += 4) g.hline(sx + 1, y, 14, PALETTE.wood);
+    g.vline(sx + 14, sy + 1, 42, PALETTE.amber); // yellow safety edge
+  }
+
+  const tex = scene.textures.addCanvas(key, c);
+  tex?.setFilter(Phaser.Textures.FilterMode.NEAREST);
+  return { key, x: p.tiles.x0 * TILE, y: p.tiles.y0 * TILE };
 }
 
-/** A workshop: a rounded building, a sawtooth roof, a row of terminal bays, a door. */
-export function workshop(scene: Phaser.Scene, wall: number): string {
-  const key = `workshop-${wall.toString(16)}`;
-  make(scene, key, 200, 150, (g) => {
-    g.fillStyle(0x000000, 0.12).fillRoundedRect(8, 22, 190, 126, 18);
-    roundRect(g, 4, 18, 192, 124, 18, wall, INK, 3);
-    // Sawtooth roof: the works' signature.
-    const roof = Phaser.Display.Color.IntegerToColor(wall).darken(18).color;
-    g.fillStyle(roof, 1);
-    for (let i = 0; i < 6; i++) {
-      const x = 14 + i * 29;
-      g.fillTriangle(x, 22, x + 29, 22, x + 29, 4);
+// MARK: Committee Houses — Cutaway Interior + Fade-Open Pitched Roof
+
+/** Pixel-art dimensions (in art px, multiplied by PX=2 in world) for a house spec. */
+export function housePx(spec: HouseSpec): { w: number; h: number; roofH: number } {
+  const { w, h } = houseSize(spec);
+  // Keep snug inside the 7×6 tile lot (224×192 world px → 112×96 art px).
+  const aw = Math.min(102, Math.round(w / PX));
+  const ah = Math.min(72, Math.round((h - 16) / PX));
+  return { w: aw, h: ah, roofH: 22 };
+}
+
+/** Where the 4 senator desks sit inside a house (in world px relative to house center). */
+export function deskPlaces(spec: HouseSpec): { x: number; y: number }[] {
+  const { w, h } = housePx(spec);
+  const hw = (w * PX) / 2, hh = (h * PX) / 2;
+  const dx = Math.round(hw * 0.48);
+  const yTop = Math.round(-hh * 0.34);
+  const yBot = Math.round(hh * 0.24);
+  return [
+    { x: -dx, y: yTop },
+    { x: dx, y: yTop },
+    { x: -dx, y: yBot },
+    { x: dx, y: yBot },
+  ];
+}
+
+/** Front facade windows (in world px relative to house center) visible even when roof is closed. */
+export function frontWindowPlaces(spec: HouseSpec): { x: number; y: number }[] {
+  const { w, h } = housePx(spec);
+  const hw = (w * PX) / 2, hh = (h * PX) / 2;
+  const y = hh - 16;
+  return [{ x: -hw * 0.56, y }, { x: hw * 0.56, y }];
+}
+
+/**
+ * Layer 1 (always beneath roof): Smallville-style open-roof cutaway interior
+ * of a committee house — crisp outer walls, floorboards, woven rug, north
+ * bookshelves, mail slot, front wall facade & door!
+ */
+export function houseInterior(scene: Phaser.Scene, spec: HouseSpec): { key: string; w: number; h: number; roofH: number } {
+  const { w, h, roofH } = housePx(spec);
+  const key = `house-in-${houseKey(spec)}`;
+  const pad = 4;
+  makePx(scene, key, w + pad * 2, h + roofH + pad * 2, (g) => {
+    const x0 = pad, y0 = pad + roofH;
+    const wall = wallColour(spec.wall);
+    const trim = roofColour(spec.trim);
+    const wallDark = shade(wall, -26);
+    const doorCol = shade(roofColour(spec.doorColour), -16);
+
+    // Soft pixel drop shadow on the grass.
+    g.rect(x0 + 3, y0 + 4, w, h, 0x000000, 0.22);
+
+    // Outer cutaway wall shell.
+    g.box(x0, y0, w, h, wallDark, INK);
+    // Warm oak floorboards inside.
+    const ix = x0 + 4, iy = y0 + 6, iw = w - 8, ih = h - 22;
+    g.rect(ix, iy, iw, ih, PALETTE.woodLight);
+    for (let y = iy + 3; y < iy + ih; y += 4) g.hline(ix, y, iw, PALETTE.wood);
+    for (let y = iy; y < iy + ih; y += 4) {
+      for (let x = ix + ((y % 8) ? 7 : 13); x < ix + iw - 2; x += 16) g.vline(x, y, 3, shade(PALETTE.wood, -14));
     }
-    g.lineStyle(3, INK, 1);
-    for (let i = 0; i < 6; i++) {
-      const x = 14 + i * 29;
-      g.beginPath().moveTo(x, 22).lineTo(x + 29, 4).lineTo(x + 29, 22).strokePath();
+    // Wall-top bevel (shows thick cutaway walls cleanly!).
+    g.hline(x0 + 1, y0 + 1, w - 2, shade(wall, 12));
+    g.rect(x0 + 4, y0 + 4, w - 8, 2, shade(wallDark, -18)); // inner north wall shadow
+
+    // Woven center rug tinted to trim colour.
+    const rw = Math.round(iw * 0.44), rh = Math.round(ih * 0.48);
+    const rx = Math.round(ix + (iw - rw) / 2), ry = Math.round(iy + (ih - rh) / 2 + 2);
+    g.box(rx, ry, rw, rh, shade(trim, 24), shade(trim, -22));
+    g.rect(rx + 2, ry + 2, rw - 4, rh - 4, shade(trim, 42));
+
+    // North-wall bookshelves / filing cabinets (classic Smallville furniture).
+    for (const bx of [ix + 3, ix + iw - 17]) {
+      g.box(bx, iy - 1, 14, 7, PALETTE.woodDark, INK);
+      g.hline(bx + 2, iy + 1, 3, PALETTE.red);
+      g.hline(bx + 6, iy + 1, 3, PALETTE.amber);
+      g.hline(bx + 10, iy + 1, 2, PALETTE.copper);
+      g.hline(bx + 2, iy + 3, 10, PALETTE.wood);
     }
-    // A band where the bays sit.
-    roundRect(g, 14, 36, 172, 58, 12, Phaser.Display.Color.IntegerToColor(wall).lighten(12).color, INK, 2);
-    // The door, low and round-topped.
-    roundRect(g, 86, 104, 28, 36, 12, PALETTE.woodDark, INK, 2);
-    g.fillStyle(PALETTE.amber, 1).fillCircle(108, 124, 2.5);
-    // A pipe stub on the roof and a little vent.
-    roundRect(g, 160, 0, 14, 20, 5, PALETTE.stoneDark, INK, 2);
+
+    // Front exterior facade wall (bottom 16 art px — visible even when roof is closed!).
+    const fy = y0 + h - 16;
+    g.box(x0, fy, w, 16, wall, INK);
+    // Wall material texture on front facade.
+    if (spec.material === "brick") {
+      const br = shade(wall, -28);
+      for (let y = fy + 2; y < fy + 14; y += 3) {
+        for (let x = x0 + 2 + ((y % 6) ? 3 : 0); x < x0 + w - 4; x += 6) g.hline(x, y, 4, br);
+      }
+    } else if (spec.material === "timber") {
+      g.vline(x0 + 4, fy + 1, 14, PALETTE.woodDark);
+      g.vline(x0 + w - 5, fy + 1, 14, PALETTE.woodDark);
+      g.hline(x0 + 1, fy + 4, w - 2, PALETTE.woodDark);
+    } else if (spec.material === "panel") {
+      for (let y = fy + 3; y < fy + 14; y += 3) g.hline(x0 + 1, y, w - 2, wallDark);
+    }
+    // Stone plinth at base of wall.
+    g.rect(x0 + 1, y0 + h - 3, w - 2, 2, PALETTE.stoneDark);
+
+    // Front door & welcome mat + brass mail slot.
+    const dw = spec.door === "double" ? 14 : 10;
+    const dx = Math.round(x0 + (w - dw) / 2);
+    g.box(dx, fy + 3, dw, 12, doorCol, INK);
+    g.hline(dx + 1, fy + 4, dw - 2, shade(doorCol, 24));
+    if (spec.door === "double") g.vline(dx + Math.floor(dw / 2), fy + 4, 10, INK);
+    g.p(dx + dw - 3, fy + 9, PALETTE.amber); // brass doorknob
+    // Mail slot beside door.
+    g.box(dx + dw + 2, fy + 8, 5, 3, PALETTE.amber, INK);
+    // Welcome mat inside door.
+    g.rect(dx, fy - 3, dw, 3, PALETTE.woodDark);
   });
-  return key;
+  return { key, w, h, roofH };
 }
 
-/** A terminal bay window, lit or dark, at its senator's place in the band. */
-export function bay(scene: Phaser.Scene, lit: boolean): string {
-  const key = lit ? "bay-lit" : "bay-dark";
-  make(scene, key, 38, 46, (g) => {
-    roundRect(g, 2, 2, 34, 42, 9, lit ? PALETTE.lit : PALETTE.unlit, INK, 2.5);
+/**
+ * Layer 2 (overlays interior, fades open on zoom/hover/click): authentic
+ * 16-bit pitched/gabled/tiled RPG roof with shingles, eaves shadow, topper,
+ * chimney, and non-text emblem badge!
+ */
+export function houseRoof(scene: Phaser.Scene, spec: HouseSpec, season: Season): { key: string; w: number; h: number; roofH: number } {
+  const { w, h, roofH } = housePx(spec);
+  const key = `house-roof-${houseKey(spec)}-${season === "winter" ? "w" : "n"}`;
+  const pad = 4;
+  makePx(scene, key, w + pad * 2, h + roofH + pad * 2, (g) => {
+    const x0 = pad, y0 = pad + roofH;
+    const roof = roofColour(spec.trim);
+    const roofHi = shade(roof, 24);
+    const roofMid = roof;
+    const roofDk = shade(roof, -24);
+    const roofH_cover = h - 14; // leaves the front exterior facade wall (bottom 15px) visible!
+    const topY = y0 - 12;
+    const botY = y0 + roofH_cover;
+
+    // Eaves shadow cast onto front wall.
+    g.rect(x0, botY, w, 2, 0x000000, 0.28);
+
+    const drawShingles = (rx: number, ry: number, rw: number, rh: number) => {
+      for (let y = ry + 2; y < ry + rh - 1; y += 3) {
+        const off = ((y - ry) % 6 === 0) ? 0 : 2;
+        g.hline(rx + 1, y, rw - 2, roofDk);
+        for (let x = rx + 2 + off; x < rx + rw - 2; x += 4) {
+          g.p(x, y - 1, roofHi);
+        }
+      }
+    };
+
+    switch (spec.roof) {
+      case "gable": {
+        // Classic pitched RPG shingle roof with central bright ridge beam & wood gable eaves.
+        g.box(x0 - 2, topY + 6, w + 4, botY - (topY + 6), roofMid, INK);
+        const ridgeY = topY + Math.round((botY - topY) * 0.36);
+        g.rect(x0 - 1, topY + 7, w + 2, ridgeY - (topY + 7), shade(roofMid, -8));
+        drawShingles(x0 - 2, topY + 6, w + 4, botY - (topY + 6));
+        // Ridge beam cap.
+        g.hline(x0 - 1, ridgeY, w + 2, INK);
+        g.hline(x0 - 1, ridgeY + 1, w + 2, roofHi);
+        g.hline(x0 - 1, ridgeY + 2, w + 2, roofDk);
+        // Cute front gable dormer over the door!
+        const cx = Math.round(x0 + w / 2);
+        for (let dy = 0; dy < 10; dy++) {
+          g.hline(cx - dy - 1, botY - 12 + dy, (dy + 1) * 2 + 1, INK);
+          if (dy > 1) g.hline(cx - dy + 1, botY - 12 + dy, (dy - 1) * 2 + 1, wallColour(spec.wall));
+        }
+        g.box(cx - 3, botY - 6, 7, 5, PALETTE.unlit, INK);
+        break;
+      }
+      case "dome": {
+        g.rbox(x0 - 2, topY + 10, w + 4, botY - (topY + 10), roofDk, INK);
+        drawShingles(x0 - 2, topY + 10, w + 4, botY - (topY + 10));
+        const cx = Math.round(x0 + w / 2), cy = Math.round((topY + botY) / 2);
+        g.ellipse(cx, cy + 2, w * 0.35, (botY - topY) * 0.36, 0x000000, 0.25);
+        g.ellipse(cx, cy, w * 0.34, (botY - topY) * 0.35, INK);
+        g.ellipse(cx, cy, w * 0.34 - 1, (botY - topY) * 0.35 - 1, roofMid);
+        g.ellipse(cx - 3, cy - 3, w * 0.2, (botY - topY) * 0.2, roofHi);
+        // Brass dome cupola finial.
+        g.box(cx - 3, cy - 4, 6, 5, PALETTE.amber, INK);
+        g.p(cx, cy - 5, PALETTE.litBright);
+        break;
+      }
+      case "mansard": {
+        g.box(x0 - 2, topY + 6, w + 4, botY - (topY + 6), roofMid, INK);
+        drawShingles(x0 - 2, topY + 6, w + 4, botY - (topY + 6));
+        // Flat crowned upper deck + two dormer windows.
+        g.box(x0 + 8, topY + 11, w - 16, botY - topY - 22, shade(roofMid, 16), INK);
+        for (const dx of [0.28, 0.72]) {
+          const wx = Math.round(x0 + w * dx) - 4;
+          g.box(wx, botY - 9, 8, 7, PALETTE.lit, INK);
+          g.vline(wx + 4, botY - 8, 5, INK);
+        }
+        break;
+      }
+      case "stepped": {
+        g.box(x0 - 2, topY + 8, w + 4, botY - (topY + 8), roofMid, INK);
+        drawShingles(x0 - 2, topY + 8, w + 4, botY - (topY + 8));
+        g.box(x0 + 8, topY + 2, w - 16, 10, roofHi, INK);
+        g.box(x0 + 18, topY - 2, w - 36, 6, shade(roofHi, 14), INK);
+        break;
+      }
+      case "flat": {
+        g.box(x0 - 1, topY + 10, w + 2, botY - (topY + 10), shade(roofMid, 14), INK);
+        g.box(x0 + 3, topY + 14, w - 6, botY - topY - 18, shade(roofMid, -8), roofDk);
+        // Skylights on flat workshop roof.
+        for (let i = 0; i < 3; i++) {
+          const sx = x0 + 8 + i * Math.floor((w - 24) / 2);
+          g.box(sx, topY + 19, 12, 8, PALETTE.glass, INK);
+          g.hline(sx + 2, topY + 21, 5, PALETTE.white);
+        }
+        break;
+      }
+      default: { // sawtooth workshop roof (classic cozy pixel workshops)
+        g.box(x0 - 2, topY + 7, w + 4, botY - (topY + 7), roofMid, INK);
+        const cols = Math.max(3, Math.floor(w / 18));
+        const cw = Math.floor(w / cols);
+        for (let i = 0; i < cols; i++) {
+          const sx = x0 + i * cw;
+          g.rect(sx, topY + 8, cw - 1, botY - (topY + 9), i % 2 ? roofMid : shade(roofMid, 10));
+          g.vline(sx + cw - 1, topY + 8, botY - (topY + 9), INK);
+          g.vline(sx + cw - 2, topY + 9, botY - (topY + 11), PALETTE.glass); // north-light glass strip
+        }
+        drawShingles(x0 - 2, topY + 8, w + 4, botY - (topY + 8));
+      }
+    }
+
+    // Brick chimney on left-upper roof (matches smoke origin!).
+    const chx = x0 + Math.round(w * 0.22);
+    g.box(chx, topY + 1, 7, 11, PALETTE.terracotta, INK);
+    g.hline(chx + 1, topY + 2, 5, PALETTE.stoneDark);
+    g.hline(chx - 1, topY, 9, INK);
+
+    // Optional roof topper from card/spec on right side.
+    const tx = x0 + Math.round(w * 0.76);
+    switch (spec.topper) {
+      case "chimney": g.box(tx, topY + 2, 7, 10, PALETTE.terracottaDark, INK); break;
+      case "antenna":
+        g.vline(tx + 2, topY - 7, 13, INK);
+        g.hline(tx - 2, topY - 4, 9, INK);
+        g.p(tx + 2, topY - 8, PALETTE.red);
+        break;
+      case "vent": g.rbox(tx - 2, topY + 4, 9, 8, PALETTE.stone, INK); g.hline(tx, topY + 7, 5, INK); break;
+      case "flag":
+        g.vline(tx + 1, topY - 8, 15, INK);
+        g.rect(tx + 2, topY - 7, 8, 5, roofColour(spec.signColour));
+        break;
+      case "tank":
+        g.rbox(tx - 3, topY - 2, 11, 8, PALETTE.stoneLight, INK);
+        g.vline(tx - 1, topY + 6, 4, INK); g.vline(tx + 5, topY + 6, 4, INK);
+        break;
+      case "clock": {
+        const cx = Math.round(x0 + w / 2);
+        g.circle(cx, topY + 12, 5, INK);
+        g.circle(cx, topY + 12, 4, PALETTE.white);
+        g.vline(cx, topY + 9, 3, INK); g.hline(cx, topY + 12, 3, INK);
+        break;
+      }
+    }
+
+    // Non-text emblem plaque above eaves (color & shape only, zero text).
+    const ex = Math.round(x0 + w / 2), ey = botY - 2;
+    const sc = COLOURS[spec.signColour] ?? PALETTE.amber;
+    if (spec.sign === "round") { g.circle(ex, ey, 4, INK); g.circle(ex, ey, 3, sc); }
+    else if (spec.sign === "diamond") { g.box(ex - 3, ey - 3, 7, 7, sc, INK); }
+    else if (spec.sign === "shield") { g.rbox(ex - 4, ey - 3, 9, 7, sc, INK); }
+    else { g.box(ex - 7, ey - 3, 15, 6, sc, INK); }
+
+    // Winter snow drift along roof top & eaves.
+    if (season === "winter") {
+      g.rect(x0 - 1, topY + 7, w + 2, 4, 0xf2f7fb);
+      g.hline(x0 - 1, botY - 2, w + 2, 0xe8f1f8);
+    }
+  });
+  return { key, w, h, roofH };
+}
+
+/** Cozy lit or dark exterior front window (placed on the lower front facade). */
+export function frontWindow(scene: Phaser.Scene, lit: boolean): string {
+  const key = lit ? "win-lit" : "win-dark";
+  makePx(scene, key, 10, 9, (g) => {
+    g.box(0, 0, 10, 9, lit ? PALETTE.lit : PALETTE.unlit, INK);
     if (lit) {
-      g.fillStyle(0xffffff, 0.55).fillRoundedRect(6, 6, 10, 6, 3);
-      // Lines on a screen.
-      g.lineStyle(2, 0xd99e2b, 1);
-      for (let i = 0; i < 3; i++) g.beginPath().moveTo(8, 30 + i * 4).lineTo(28 - i * 5, 30 + i * 4).strokePath();
+      g.rect(2, 2, 3, 2, PALETTE.litBright);
+      g.hline(2, 6, 6, PALETTE.amber);
+    } else {
+      g.hline(2, 2, 2, 0x6b7ea0);
     }
+    g.vline(5, 1, 7, INK);
+    g.hline(1, 5, 8, INK);
+    g.hline(0, 8, 10, PALETTE.stoneLight); // window sill
   });
   return key;
 }
 
-/** A little person: round head, rounded body in a colour; `pose` changes arms. */
-export function person(scene: Phaser.Scene, shirt: number, opts: { hair?: number; pose?: "stand" | "wave" | "sit"; cane?: boolean; hat?: number } = {}): string {
-  const hair = opts.hair ?? PALETTE.hair;
-  const pose = opts.pose ?? "stand";
-  const key = `person-${shirt.toString(16)}-${hair.toString(16)}-${pose}-${opts.cane ? 1 : 0}-${opts.hat ?? 0}`;
-  make(scene, key, 28, 40, (g) => {
-    g.fillStyle(0x000000, 0.15).fillEllipse(14, 37, 20, 5);
-    // legs
-    if (pose !== "sit") {
-      roundRect(g, 8, 26, 5, 11, 2.5, INK);
-      roundRect(g, 15, 26, 5, 11, 2.5, INK);
-    }
-    // body and arms
-    const arm = Phaser.Display.Color.IntegerToColor(shirt).darken(12).color;
-    roundRect(g, 3, pose === "wave" ? 8 : 15, 5, 12, 2.5, arm);
-    roundRect(g, 20, 15, 5, 12, 2.5, arm);
-    roundRect(g, 6, 14, 16, 16, 7, shirt, INK, 1.5);
-    // head
-    g.fillStyle(PALETTE.skin, 1).fillCircle(14, 9, 8);
-    g.lineStyle(1.5, INK, 1).strokeCircle(14, 9, 8);
-    g.fillStyle(hair, 1).slice(14, 9, 8, Math.PI * 1.05, Math.PI * 1.95, false).fillPath();
-    g.fillStyle(INK, 1).fillCircle(11, 10, 1.1).fillCircle(17, 10, 1.1);
-    g.fillStyle(0xf28b82, 0.6).fillCircle(9, 12, 1.5).fillCircle(19, 12, 1.5);
-    if (opts.hat) roundRect(g, 7, -1, 14, 5, 2, opts.hat, INK, 1);
-    if (opts.cane) g.lineStyle(2, PALETTE.woodDark, 1).beginPath().moveTo(25, 18).lineTo(26, 37).strokePath();
+// MARK: Civic Buildings (Cutaway Interior + Fade-Open Pitched Roof)
+
+/** Town Hall (Speaker's House) — interior + grand gabled roof with clock & flag. */
+export function townHallArt(scene: Phaser.Scene, season: Season): { interior: string; roof: string; flag: string } {
+  const W = 104, H = 82;
+  const interior = makePx(scene, "civic-townhall-in", W, H, (g) => {
+    g.rect(5, 22, W - 8, H - 24, 0x000000, 0.22);
+    // Cutaway stone walls & red-carpeted Speaker's chamber.
+    g.box(2, 18, W - 4, H - 20, PALETTE.stoneDark, INK);
+    g.rect(6, 23, W - 12, H - 41, PALETTE.woodLight);
+    for (let y = 26; y < H - 18; y += 4) g.hline(6, y, W - 12, PALETTE.wood);
+    // Royal amber-red runner carpet down the center.
+    g.box(36, 25, 32, 35, 0xa83e42, 0x7a2a2e);
+    g.rect(39, 28, 26, 29, 0xc24e52);
+    // Grand wooden Speaker desk inside.
+    g.box(34, 30, 36, 10, PALETTE.woodDark, INK);
+    g.rect(36, 31, 32, 4, PALETTE.wood);
+    // Front cream stone colonnade facade.
+    const fy = H - 18;
+    g.box(2, fy, W - 4, 16, PALETTE.cream, INK);
+    g.hline(3, fy + 1, W - 6, PALETTE.amber);
+    for (const cx of [12, 26, 74, 88]) g.box(cx, fy + 2, 6, 13, PALETTE.white, INK);
+    // Grand double oak door + stone steps.
+    g.box(44, fy + 3, 16, 13, PALETTE.woodDark, INK);
+    g.vline(52, fy + 4, 11, INK);
+    g.box(38, H - 4, 28, 4, PALETTE.stoneLight, INK);
   });
-  return key;
-}
-
-/** A tool worker's tool, held up: drawn small beside the worker. */
-export function tool(scene: Phaser.Scene, kind: keyof typeof TOOLS): string {
-  const key = `tool-${kind}`;
-  make(scene, key, 18, 18, (g) => {
-    switch (kind) {
-      case "bash": // a hammer
-        g.lineStyle(3, PALETTE.woodDark, 1).beginPath().moveTo(4, 16).lineTo(12, 6).strokePath();
-        roundRect(g, 8, 1, 10, 7, 2, 0x8d93a3, INK, 1.5);
-        break;
-      case "edit": // a quill
-        g.fillStyle(0xffffff, 1).fillEllipse(11, 7, 7, 13);
-        g.lineStyle(1.5, INK, 1).strokeEllipse(11, 7, 7, 13).beginPath().moveTo(4, 17).lineTo(11, 7).strokePath();
-        break;
-      case "read": // a book
-        roundRect(g, 2, 4, 14, 11, 2, 0xe1574e, INK, 1.5);
-        g.lineStyle(1.5, 0xffffff, 1).beginPath().moveTo(9, 5).lineTo(9, 14).strokePath();
-        break;
-      case "grep": // a lens
-        g.fillStyle(0xd8f0ff, 1).fillCircle(8, 8, 5.5);
-        g.lineStyle(2, INK, 1).strokeCircle(8, 8, 5.5).beginPath().moveTo(12, 12).lineTo(16, 16).strokePath();
-        break;
-      case "mcp": // a parcel
-        roundRect(g, 2, 3, 14, 12, 2, 0xd7a86e, INK, 1.5);
-        g.lineStyle(1.5, INK, 1).beginPath().moveTo(9, 3).lineTo(9, 15).strokePath();
-        break;
-      case "web": // a little flag on a stick
-        g.lineStyle(2, INK, 1).beginPath().moveTo(4, 17).lineTo(4, 1).strokePath();
-        g.fillStyle(TOOLS.web, 1).fillTriangle(5, 1, 16, 4, 5, 8);
-        break;
+  const roof = makePx(scene, `civic-townhall-roof-${season === "winter" ? "w" : "n"}`, W, H, (g) => {
+    const col = 0xc98c36, hi = shade(col, 24), dk = shade(col, -24);
+    g.rect(2, H - 19, W - 4, 2, 0x000000, 0.28);
+    g.box(0, 14, W, H - 32, col, INK);
+    for (let y = 17; y < H - 19; y += 3) {
+      g.hline(1, y, W - 2, dk);
+      for (let x = 2 + (y % 4); x < W - 2; x += 5) g.p(x, y - 1, hi);
     }
-  }, FINE);
-  return key;
-}
-
-/** A capsule: a rounded pill in the sender's runtime colour with a white band. */
-export function capsule(scene: Phaser.Scene, color: number): string {
-  const key = `capsule-${color.toString(16)}`;
-  make(scene, key, 26, 14, (g) => {
-    roundRect(g, 1, 1, 24, 12, 6, color, INK, 1.5);
-    g.fillStyle(0xffffff, 0.9).fillRect(11, 2, 4, 10);
-    g.fillStyle(0xffffff, 0.5).fillRoundedRect(4, 3, 6, 3, 1.5);
-  }, FINE);
-  return key;
-}
-
-/** The sorting hall's roof: a round copper drum. Its wheel is separate (it turns). */
-export function hall(scene: Phaser.Scene): string {
-  make(scene, "hall", 260, 260, (g) => {
-    g.fillStyle(0x000000, 0.14).fillCircle(134, 136, 120);
-    g.fillStyle(PALETTE.copper, 1).fillCircle(130, 130, 118);
-    g.lineStyle(4, INK, 1).strokeCircle(130, 130, 118);
-    g.fillStyle(PALETTE.copperDark, 1).fillCircle(130, 130, 92);
-    g.lineStyle(3, INK, 1).strokeCircle(130, 130, 92);
-    // Rivets round the rim.
-    g.fillStyle(PALETTE.cream, 1);
-    for (let i = 0; i < 24; i++) {
-      const a = (i / 24) * Math.PI * 2;
-      g.fillCircle(130 + Math.cos(a) * 105, 130 + Math.sin(a) * 105, 2.5);
+    // Central triangular pediment & town clock!
+    const cx = Math.floor(W / 2);
+    for (let i = 0; i < 16; i++) {
+      g.hline(cx - i * 2, 4 + i, i * 4 + 1, INK);
+      if (i > 1) g.hline(cx - i * 2 + 2, 4 + i, i * 4 - 3, PALETTE.cream);
     }
+    g.hline(cx - 32, 20, 65, INK);
+    g.circle(cx, 14, 5, INK);
+    g.circle(cx, 14, 4, PALETTE.white);
+    g.vline(cx, 11, 3, INK); g.hline(cx, 14, 3, INK);
+    // Flagpole on peak.
+    g.vline(cx, 0, 5, INK);
+    if (season === "winter") g.rect(1, 15, W - 2, 3, 0xf2f7fb);
   });
-  make(scene, "wheel", 150, 150, (g) => {
-    g.lineStyle(6, PALETTE.amber, 1).strokeCircle(75, 75, 62);
-    g.lineStyle(3, INK, 1).strokeCircle(75, 75, 66).strokeCircle(75, 75, 58);
+  const flag = makePx(scene, "civic-flag", 12, 8, (g) => {
+    g.box(0, 0, 11, 7, PALETTE.amber, INK);
+    g.hline(1, 1, 9, PALETTE.litBright);
+  });
+  return { interior, roof, flag };
+}
+
+/** Post Office (Sorting Hall) — warm brick & copper cupola, brass wheel inside! */
+export function postOfficeArt(scene: Phaser.Scene, season: Season): { interior: string; roof: string; wheel: string } {
+  const W = 104, H = 82;
+  const interior = makePx(scene, "civic-post-in", W, H, (g) => {
+    g.rect(5, 22, W - 8, H - 24, 0x000000, 0.22);
+    g.box(2, 18, W - 4, H - 20, PALETTE.terracottaDark, INK);
+    // Checkered post-office tile floor.
+    for (let y = 23; y < H - 18; y += 6) {
+      for (let x = 6; x < W - 6; x += 6) {
+        g.rect(x, y, 6, 6, ((x + y) / 6) % 2 === 0 ? PALETTE.cream : PALETTE.pavingEdge);
+      }
+    }
+    // Mail pigeonhole cubbies along north wall.
+    g.box(10, 22, 84, 8, PALETTE.woodDark, INK);
+    for (let x = 13; x < 90; x += 8) g.rect(x, 24, 5, 4, x % 16 === 5 ? PALETTE.white : PALETTE.wood);
+    // Front brick facade with arched windows & double post doors.
+    const fy = H - 18;
+    g.box(2, fy, W - 4, 16, 0xbe6349, INK);
+    for (let y = fy + 2; y < fy + 14; y += 3) {
+      for (let x = 4 + (y % 6); x < W - 6; x += 7) g.hline(x, y, 4, 0x994a34);
+    }
+    g.box(14, fy + 4, 14, 8, PALETTE.lit, INK); g.vline(21, fy + 5, 6, INK);
+    g.box(W - 28, fy + 4, 14, 8, PALETTE.lit, INK); g.vline(W - 21, fy + 5, 6, INK);
+    g.box(44, fy + 3, 16, 13, PALETTE.copperDark, INK);
+    g.vline(52, fy + 4, 11, INK);
+    // Brass envelope emblem over door.
+    g.box(47, fy - 1, 10, 6, PALETTE.amber, INK);
+    g.line(48, fy, 52, fy + 3, INK); g.line(56, fy, 52, fy + 3, INK);
+  });
+  const roof = makePx(scene, `civic-post-roof-${season === "winter" ? "w" : "n"}`, W, H, (g) => {
+    const col = PALETTE.copper, hi = shade(col, 24), dk = PALETTE.copperDark;
+    g.rect(2, H - 19, W - 4, 2, 0x000000, 0.28);
+    g.box(0, 14, W, H - 32, col, INK);
+    for (let y = 17; y < H - 19; y += 3) {
+      g.hline(1, y, W - 2, dk);
+      for (let x = 3; x < W - 3; x += 6) g.p(x, y - 1, hi);
+    }
+    // Copper bell cupola centered on roof.
+    const cx = Math.floor(W / 2);
+    g.box(cx - 10, 6, 20, 18, PALETTE.cream, INK);
+    g.box(cx - 12, 2, 24, 6, dk, INK);
+    g.circle(cx, 15, 4, PALETTE.amber);
+    if (season === "winter") g.rect(1, 15, W - 2, 3, 0xf2f7fb);
+  });
+  const wheel = makePx(scene, "civic-wheel", 26, 26, (g) => {
+    const c = 13;
+    g.circle(c, c, 11, INK);
+    g.circle(c, c, 10, PALETTE.amber);
+    g.circle(c, c, 7, PALETTE.copperDark);
     for (let i = 0; i < 8; i++) {
       const a = (i / 8) * Math.PI * 2;
-      g.lineStyle(5, PALETTE.amber, 1).beginPath().moveTo(75, 75).lineTo(75 + Math.cos(a) * 58, 75 + Math.sin(a) * 58).strokePath();
+      g.line(c, c, c + Math.cos(a) * 9, c + Math.sin(a) * 9, PALETTE.amber);
     }
-    g.fillStyle(PALETTE.cream, 1).fillCircle(75, 75, 16);
-    g.lineStyle(3, INK, 1).strokeCircle(75, 75, 16);
+    g.circle(c, c, 3, PALETTE.cream);
+    g.p(c, c, INK);
   });
-  return "hall";
+  return { interior, roof, wheel };
 }
 
-/** The archive: a cabinet of reels, one row per committee (drawn live on top). */
-export function archive(scene: Phaser.Scene): string {
-  make(scene, "archive", 200, 170, (g) => {
-    g.fillStyle(0x000000, 0.12).fillRoundedRect(8, 12, 190, 156, 16);
-    roundRect(g, 4, 8, 190, 154, 16, PALETTE.navy, INK, 3);
-    roundRect(g, 16, 22, 166, 126, 10, PALETTE.navyDark, INK, 2);
-    // A stamp on the roof edge.
-    roundRect(g, 150, 0, 34, 16, 6, PALETTE.red, INK, 2);
-  });
-  return "archive";
-}
-
-/** The town hall: a cream building with an amber band, columns and a clock. */
-export function townHall(scene: Phaser.Scene): string {
-  make(scene, "townhall", 240, 160, (g) => {
-    g.fillStyle(0x000000, 0.12).fillRoundedRect(10, 34, 228, 124, 14);
-    g.fillStyle(0xe7b85e, 1).fillTriangle(6, 40, 120, 2, 234, 40);
-    g.lineStyle(3, INK, 1).strokeTriangle(6, 40, 120, 2, 234, 40);
-    roundRect(g, 10, 38, 220, 116, 12, PALETTE.cream, INK, 3);
-    g.fillStyle(PALETTE.amber, 1).fillRect(12, 50, 216, 8);
-    for (let i = 0; i < 5; i++) roundRect(g, 24 + i * 44, 64, 14, 82, 5, 0xffffff, INK, 2);
-    g.fillStyle(0xffffff, 1).fillCircle(120, 24, 10);
-    g.lineStyle(2, INK, 1).strokeCircle(120, 24, 10).beginPath().moveTo(120, 24).lineTo(120, 17).moveTo(120, 24).lineTo(125, 26).strokePath();
-  });
-  return "townhall";
-}
-
-/** A sheet of the docket. */
-export function sheet(scene: Phaser.Scene): string {
-  make(scene, "sheet", 30, 8, (g) => roundRect(g, 1, 1, 28, 6, 2, 0xffffff, INK, 1.5));
-  return "sheet";
-}
-
-export function memoryHall(scene: Phaser.Scene): string {
-  make(scene, "memory", 230, 150, (g) => {
-    g.fillStyle(0x000000, 0.12).fillRoundedRect(10, 34, 216, 114, 14);
-    g.fillStyle(0xbfa6dc, 1).fillRoundedRect(6, 6, 218, 44, { tl: 40, tr: 40, bl: 0, br: 0 });
-    roundRect(g, 6, 30, 218, 116, 14, 0xefe6fb, INK, 3);
-    for (let i = 0; i < 5; i++) {
-      roundRect(g, 22 + i * 40, 56, 26, 52, 13, 0xffe9a8, INK, 2);
+/** Archive Library — sandstone & navy slate roof, interior ledger shelf space. */
+export function archiveArt(scene: Phaser.Scene, season: Season): { interior: string; roof: string } {
+  const W = 104, H = 82;
+  const interior = makePx(scene, "civic-archive-in", W, H, (g) => {
+    g.rect(5, 22, W - 8, H - 24, 0x000000, 0.22);
+    g.box(2, 18, W - 4, H - 20, PALETTE.navyDark, INK);
+    g.rect(6, 23, W - 12, H - 41, 0x2a3552); // dark blue ledger archive floor/cabinet bay
+    g.box(10, 24, W - 20, H - 45, 0x202940, PALETTE.navy);
+    // Front sandstone library facade with arched windows.
+    const fy = H - 18;
+    g.box(2, fy, W - 4, 16, PALETTE.stoneLight, INK);
+    for (const wx of [12, 28, 66, 82]) {
+      g.rbox(wx, fy + 3, 10, 10, PALETTE.lit, INK);
+      g.vline(wx + 5, fy + 4, 8, INK);
     }
-    roundRect(g, 98, 112, 34, 34, 14, PALETTE.woodDark, INK, 2);
+    g.box(45, fy + 3, 14, 13, PALETTE.navyDark, INK);
+    g.vline(52, fy + 4, 11, INK);
   });
-  return "memory";
+  const roof = makePx(scene, `civic-archive-roof-${season === "winter" ? "w" : "n"}`, W, H, (g) => {
+    const col = PALETTE.navy, hi = shade(col, 24), dk = PALETTE.navyDark;
+    g.rect(2, H - 19, W - 4, 2, 0x000000, 0.28);
+    g.box(0, 14, W, H - 32, col, INK);
+    for (let y = 17; y < H - 19; y += 3) {
+      g.hline(1, y, W - 2, dk);
+      for (let x = 2 + (y % 5); x < W - 2; x += 5) g.p(x, y - 1, hi);
+    }
+    // Red wax stamp finial on ridge.
+    g.box(W - 22, 10, 14, 7, PALETTE.red, INK);
+    if (season === "winter") g.rect(1, 15, W - 2, 3, 0xf2f7fb);
+  });
+  return { interior, roof };
 }
 
-/** A signal post with two lamps; the live lamp is drawn on top by the scene. */
-export function signal(scene: Phaser.Scene): string {
-  make(scene, "signal", 16, 44, (g) => {
-    g.lineStyle(3, INK, 1).beginPath().moveTo(8, 18).lineTo(8, 44).strokePath();
-    roundRect(g, 1, 1, 14, 24, 6, INK);
-    g.fillStyle(0x55525f, 1).fillCircle(8, 8, 4).fillCircle(8, 18, 4);
+/** Memory Hall (History) — serene lavender-stone pavilion & archive alcoves. */
+export function memoryHallArt(scene: Phaser.Scene, season: Season): { interior: string; roof: string } {
+  const W = 104, H = 82;
+  const interior = makePx(scene, "civic-memory-in", W, H, (g) => {
+    g.rect(5, 22, W - 8, H - 24, 0x000000, 0.22);
+    g.box(2, 18, W - 4, H - 20, 0x6a5a7d, INK);
+    g.rect(6, 23, W - 12, H - 41, 0xebe2f5);
+    for (let x = 12; x < W - 14; x += 16) {
+      g.box(x, 26, 12, 26, PALETTE.wood, INK);
+      g.hline(x + 2, 30, 8, PALETTE.amber);
+      g.hline(x + 2, 36, 8, PALETTE.copper);
+      g.hline(x + 2, 42, 8, PALETTE.red);
+    }
+    const fy = H - 18;
+    g.box(2, fy, W - 4, 16, 0xefe7f7, INK);
+    for (const wx of [12, 26, 68, 82]) g.rbox(wx, fy + 3, 9, 10, PALETTE.lit, INK);
+    g.rbox(45, fy + 3, 14, 13, PALETTE.woodDark, INK);
   });
-  make(scene, "lamp-red", 10, 10, (g) => g.fillStyle(PALETTE.red, 1).fillCircle(5, 5, 4.5));
-  make(scene, "lamp-green", 10, 10, (g) => g.fillStyle(PALETTE.green, 1).fillCircle(5, 5, 4.5));
-  return "signal";
+  const roof = makePx(scene, `civic-memory-roof-${season === "winter" ? "w" : "n"}`, W, H, (g) => {
+    const col = 0x7b6396, hi = shade(col, 24), dk = shade(col, -24);
+    g.rect(2, H - 19, W - 4, 2, 0x000000, 0.28);
+    g.rbox(0, 12, W, H - 30, col, INK);
+    for (let y = 16; y < H - 19; y += 3) {
+      g.hline(2, y, W - 4, dk);
+      for (let x = 4; x < W - 4; x += 6) g.p(x, y - 1, hi);
+    }
+    if (season === "winter") g.rect(2, 13, W - 4, 3, 0xf2f7fb);
+  });
+  return { interior, roof };
 }
 
-/** An approval gate: two posts and a striped barrier (rotated up to open). */
-export function gate(scene: Phaser.Scene): string {
-  make(scene, "gate-post", 10, 36, (g) => roundRect(g, 1, 1, 8, 34, 3, PALETTE.stoneDark, INK, 2));
-  make(scene, "barrier", 70, 10, (g) => {
-    roundRect(g, 1, 1, 68, 8, 4, 0xffffff, INK, 2);
-    g.fillStyle(PALETTE.red, 1);
-    for (let i = 0; i < 4; i++) g.fillRect(6 + i * 16, 2, 8, 6);
+// MARK: Interior Furniture (Smallville-style desks, CRT terminals, desk items)
+
+export function desk(scene: Phaser.Scene, wide: boolean): string {
+  const key = wide ? "desk-wide" : "desk";
+  const w = wide ? 24 : 20;
+  return makePx(scene, key, w, 12, (g) => {
+    g.rect(1, 9, w - 2, 3, 0x000000, 0.2);
+    g.box(0, 2, w, 7, PALETTE.wood, INK);
+    g.hline(1, 3, w - 2, PALETTE.woodLight);
+    g.rect(2, 9, 3, 3, PALETTE.woodDark);
+    g.rect(w - 5, 9, 3, 3, PALETTE.woodDark);
   });
-  return "barrier";
 }
 
-/** A tree in its season: blossom, summer green, autumn colour, bare with snow. */
-export function tree(scene: Phaser.Scene, season: "spring" | "summer" | "autumn" | "winter" = "summer"): string {
-  const key = season === "summer" ? "tree" : `tree-${season}`;
-  make(scene, key, 46, 56, (g) => {
-    g.fillStyle(0x000000, 0.15).fillEllipse(24, 52, 34, 8);
-    roundRect(g, 20, 30, 7, 22, 3, PALETTE.woodDark);
+export function terminal(scene: Phaser.Scene, lit: boolean): string {
+  const key = lit ? "term-lit" : "term-dark";
+  return makePx(scene, key, 10, 9, (g) => {
+    g.box(0, 0, 10, 7, lit ? 0x263854 : 0x22252e, INK);
+    if (lit) {
+      g.hline(2, 2, 5, 0x7be89c);
+      g.hline(2, 4, 4, 0xffe28a);
+    } else {
+      g.p(2, 2, 0x454d63);
+    }
+    g.rect(4, 7, 2, 2, INK);
+  });
+}
+
+export function deskItem(scene: Phaser.Scene, kind: string): string {
+  return makePx(scene, `item-${kind}`, 7, 7, (g) => {
+    switch (kind) {
+      case "plant":
+        g.box(2, 4, 3, 3, PALETTE.terracotta, INK);
+        g.rect(1, 1, 5, 3, PALETTE.leaf);
+        g.p(3, 0, PALETTE.leafLight);
+        break;
+      case "mug":
+        g.box(1, 2, 4, 5, PALETTE.white, INK);
+        g.p(5, 4, INK);
+        break;
+      case "lamp":
+        g.vline(2, 2, 5, INK);
+        g.rect(2, 1, 4, 2, PALETTE.amber);
+        break;
+      case "cat":
+        g.rect(1, 3, 5, 3, 0x8f7b6b);
+        g.p(4, 2, 0x8f7b6b); g.p(5, 2, 0x8f7b6b);
+        break;
+      case "books":
+        g.vline(1, 1, 5, PALETTE.red);
+        g.vline(2, 1, 5, PALETTE.copper);
+        g.vline(3, 1, 5, PALETTE.amber);
+        break;
+      default: // radio
+        g.box(0, 2, 7, 5, 0x8bc2de, INK);
+        g.vline(5, 0, 2, INK);
+    }
+  });
+}
+
+// MARK: Props, Fountain, Trees, Plants, Monuments, Beyond-Town
+
+/** Animated 3-frame stone fountain for the center of Town Square. */
+export function fountainArt(scene: Phaser.Scene): string[] {
+  return [0, 1, 2].map((f) => makePx(scene, `fountain-${f}`, 36, 36, (g) => {
+    const cx = 18, cy = 20;
+    g.ellipse(cx, cy + 4, 16, 10, 0x000000, 0.18);
+    g.ellipse(cx, cy, 16, 11, INK);
+    g.ellipse(cx, cy, 15, 10, PALETTE.stoneLight);
+    g.ellipse(cx, cy, 12, 7.5, PALETTE.water);
+    g.ellipse(cx, cy + 1, 10, 5.5, PALETTE.waterLight);
+    // Central stone pedestal & upper bowl.
+    g.box(cx - 3, cy - 8, 6, 9, PALETTE.stone, INK);
+    g.ellipse(cx, cy - 8, 6, 3, INK);
+    g.ellipse(cx, cy - 8, 5, 2, PALETTE.stoneLight);
+    // Animated sparkling water jets!
+    const h = 4 + (f % 2);
+    g.vline(cx, cy - 9 - h, h, PALETTE.waterFoam);
+    g.p(cx - 2 - f, cy - 10, PALETTE.waterFoam);
+    g.p(cx + 2 + f, cy - 10, PALETTE.waterFoam);
+    g.p(cx - 5, cy - 3 + f, PALETTE.waterFoam);
+    g.p(cx + 5, cy - 2 - (f % 2), PALETTE.waterFoam);
+    g.hline(cx - 8 + f * 2, cy + 2, 4, PALETTE.waterFoam);
+  }));
+}
+
+export function tree(scene: Phaser.Scene, season: Season = "summer"): string {
+  const key = `tree-${season}`;
+  return makePx(scene, key, 26, 34, (g) => {
+    g.ellipse(13, 30, 10, 3.5, 0x000000, 0.22);
+    // Textured trunk.
+    g.box(10, 19, 6, 12, PALETTE.woodDark, INK);
+    g.vline(11, 20, 10, PALETTE.wood);
     if (season === "winter") {
-      g.lineStyle(3, PALETTE.woodDark, 1);
-      for (const [x, y] of [[12, 14], [34, 14], [23, 4], [16, 24], [31, 22]] as const) g.beginPath().moveTo(23.5, 34).lineTo(x, y).strokePath();
-      g.fillStyle(0xffffff, 0.95).fillEllipse(13, 13, 9, 4).fillEllipse(34, 13, 9, 4).fillEllipse(23, 3.5, 9, 4);
+      // Snow-laden bare winter branches.
+      g.line(13, 20, 6, 10, PALETTE.woodDark);
+      g.line(13, 20, 20, 10, PALETTE.woodDark);
+      g.line(13, 18, 13, 5, PALETTE.woodDark);
+      g.ellipse(6, 9, 4, 2, 0xf2f7fb);
+      g.ellipse(20, 9, 4, 2, 0xf2f7fb);
+      g.ellipse(13, 5, 5, 2.5, 0xffffff);
       return;
     }
-    const [dark, light] = season === "autumn" ? [0xd9822b, 0xf2a93b] : season === "spring" ? [0x8fcf78, 0xa6dc8c] : [PALETTE.leafDark, PALETTE.leaf];
-    g.fillStyle(dark, 1).fillCircle(14, 26, 12).fillCircle(32, 26, 12).fillCircle(23, 15, 14);
-    g.fillStyle(light, 1).fillCircle(14, 24, 10.5).fillCircle(32, 24, 10.5).fillCircle(23, 13, 12.5);
-    if (season === "spring") { g.fillStyle(0xffc1d6, 1); for (const [x, y] of [[12, 20], [20, 9], [28, 14], [34, 24], [18, 28], [26, 24], [30, 7]] as const) g.fillCircle(x, y, 2.6); }
-    if (season === "autumn") { g.fillStyle(0xc0392b, 0.8); for (const [x, y] of [[13, 22], [27, 10], [33, 27]] as const) g.fillCircle(x, y, 3); }
-    g.fillStyle(0xffffff, 0.25).fillCircle(19, 9, 4);
+    const pal = season === "autumn"
+      ? { dk: 0xa64d24, mid: 0xd67c2c, hi: 0xf2b144, acc: 0xc43c2b }
+      : season === "spring"
+        ? { dk: 0x4b8744, mid: 0x6cb05b, hi: 0x93d17b, acc: 0xffbfd6 }
+        : { dk: PALETTE.leafDark, mid: PALETTE.leaf, hi: PALETTE.leafLight, acc: 0x99d977 };
+    // Layered pixel foliage clusters with crisp silhouette.
+    g.circle(8, 15, 7, INK); g.circle(18, 15, 7, INK); g.circle(13, 9, 8, INK);
+    g.circle(8, 15, 6, pal.dk); g.circle(18, 15, 6, pal.dk); g.circle(13, 10, 7, pal.dk);
+    g.circle(8, 13, 5, pal.mid); g.circle(18, 13, 5, pal.mid); g.circle(13, 8, 6, pal.mid);
+    g.circle(11, 6, 3.5, pal.hi); g.circle(16, 10, 2.5, pal.hi);
+    for (const [x, y] of [[7, 11], [14, 5], [19, 12], [11, 14]] as const) g.p(x, y, pal.acc);
   });
-  return key;
 }
 
-/** A street lamp (its light is a glow switched on at dusk). */
-export function lamp(scene: Phaser.Scene): string {
-  make(scene, "lamp", 14, 46, (g) => {
-    g.fillStyle(0x000000, 0.15).fillEllipse(7, 44, 10, 3);
-    roundRect(g, 5.5, 10, 3, 34, 1.5, INK);
-    roundRect(g, 1, 2, 12, 10, 4, PALETTE.lit, INK, 1.5);
-  });
-  return "lamp";
-}
-
-/** A windmill's sails, turned in the wind. */
-export function sails(scene: Phaser.Scene): string {
-  make(scene, "sails", 64, 64, (g) => {
-    g.lineStyle(5, PALETTE.wood, 1);
-    for (const a of [0.4, 2.0, 3.5, 5.1]) g.beginPath().moveTo(32, 32).lineTo(32 + Math.cos(a) * 30, 32 + Math.sin(a) * 30).strokePath();
-    g.fillStyle(INK, 1).fillCircle(32, 32, 4);
-  });
-  return "sails";
-}
-
-/** A puff of chimney smoke; a raindrop; a cloud's shadow. */
-/**
- * A house's front garden as one piece of art (not shapes drawn every frame,
- * which would break the batch): `w` the house's width; drawn so its centre
- * sits at (5, h/2 + 15) under the house.
- */
-export function gardenArt(scene: Phaser.Scene, kind: string, w: number): string {
-  const key = `garden-${kind}-${w}`;
-  const W = w + 80, ox = w / 2 + 35, oy = -2; // local (x, y - h/2) → texture (x + ox, y' - oy)
-  make(scene, key, W, 34, (g) => {
-    const X = (x: number) => x + ox, Y = (dy: number) => dy - oy;
-    if (kind === "flowers") for (let i = 0; i < 9; i++) g.fillStyle([0xffb7c5, 0xfff2a8, 0xffffff, 0xd6bfe6][i % 4]!, 1).fillCircle(X(-w / 2 + 14 + i * 8), Y(12), 3.5);
-    if (kind === "hedge") g.fillStyle(PALETTE.leafDark, 1).fillRoundedRect(X(-w / 2), Y(6), w * 0.32, 12, 6).fillRoundedRect(X(w / 2 - w * 0.32), Y(6), w * 0.32, 12, 6);
-    if (kind === "rocks") for (let i = 0; i < 4; i++) g.fillStyle(PALETTE.stoneDark, 1).fillEllipse(X(w / 2 - 20 - i * 14), Y(12), 10, 7);
-    if (kind === "pond") g.fillStyle(PALETTE.water, 1).fillEllipse(X(w / 2 + 10), Y(16), 46, 18).lineStyle(2, INK, 1).strokeEllipse(X(w / 2 + 10), Y(16), 46, 18);
-  });
-  return key;
-}
-
-/** A sill (the bays' foot), snow along a roof: plain bars as art. */
-export function bar(scene: Phaser.Scene, w: number, h: number, fill: number, stroke?: number, lw = 2): string {
-  const key = `bar-${w}-${h}-${fill.toString(16)}-${stroke?.toString(16) ?? ""}-${lw}`;
-  make(scene, key, w + lw, h + lw, (g) => roundRect(g, lw / 2, lw / 2, w, h, 0, fill, stroke, lw));
-  return key;
-}
-
-export function weatherArt(scene: Phaser.Scene) {
-  make(scene, "puff", 16, 16, (g) => g.fillStyle(0xffffff, 1).fillCircle(8, 8, 7));
-  make(scene, "drop", 3, 12, (g) => g.fillStyle(0xbcd6f0, 0.9).fillRoundedRect(0.5, 0, 2, 12, 1));
-  make(scene, "flake", 6, 6, (g) => g.fillStyle(0xffffff, 1).fillCircle(3, 3, 2.6));
-  make(scene, "cloud", 200, 110, (g) => {
-    // Soft-edged: rings of thin shade, thickest in the middle.
-    for (let k = 0; k < 10; k++) {
-      const f = 1 - k * 0.085;
-      g.fillStyle(0x000000, 0.1).fillEllipse(70, 60, 120 * f, 70 * f).fillEllipse(130, 50, 120 * f, 80 * f).fillEllipse(100, 70, 160 * f, 60 * f);
+export function plant(scene: Phaser.Scene, species: string, shadeIdx: number): string {
+  const key = `plant-${species}-${shadeIdx}`;
+  const greens = [0x5ea64c, 0x6cb558, 0x4f9444, 0x78bd5c];
+  const leaf = greens[shadeIdx % greens.length]!, leafDk = shade(leaf, -26), leafHi = shade(leaf, 24);
+  return makePx(scene, key, 20, 24, (g) => {
+    g.ellipse(10, 21, 7, 2.5, 0x000000, 0.18);
+    switch (species) {
+      case "cone":
+        g.box(8, 16, 4, 6, PALETTE.woodDark, INK);
+        for (let y = 2; y < 18; y++) {
+          const hw = Math.round(((y - 2) / 16) * 7);
+          g.hline(10 - hw, y, hw * 2 + 1, y % 3 === 0 ? leafDk : leaf);
+          g.p(10 - hw, y, INK); g.p(10 + hw, y, INK);
+        }
+        break;
+      case "tall":
+        g.box(8, 15, 4, 7, PALETTE.woodDark, INK);
+        g.ellipse(10, 10, 5, 8, INK); g.ellipse(10, 10, 4, 7, leafDk); g.ellipse(9, 8, 3, 5, leaf);
+        break;
+      case "bush":
+        g.circle(6, 17, 4.5, INK); g.circle(14, 17, 4.5, INK); g.circle(10, 14, 5, INK);
+        g.circle(6, 17, 3.5, leafDk); g.circle(14, 17, 3.5, leafDk); g.circle(10, 14, 4, leaf);
+        g.p(9, 12, leafHi);
+        break;
+      case "flowers":
+        g.ellipse(10, 18, 7, 3.5, leafDk);
+        for (const [x, y, c] of [[6, 17, 0xffaec4], [10, 16, 0xfff099], [14, 17, 0xffffff], [8, 19, 0x99d0ff], [12, 19, 0xd8b4f0]] as const) g.p(x, y, c);
+        break;
+      case "birch":
+        g.box(8, 11, 4, 11, 0xf2eee6, INK);
+        g.p(9, 14, INK); g.p(10, 17, INK);
+        g.circle(10, 8, 6, INK); g.circle(10, 8, 5, 0x9ad470); g.circle(9, 6, 3, 0xbef08f);
+        break;
+      case "blossom":
+        g.box(8, 14, 4, 8, PALETTE.woodDark, INK);
+        g.circle(7, 11, 5, INK); g.circle(13, 11, 5, INK); g.circle(10, 7, 5.5, INK);
+        g.circle(7, 11, 4, 0xf29ebb); g.circle(13, 11, 4, 0xf29ebb); g.circle(10, 7, 4.5, 0xffbdd4);
+        g.p(9, 5, 0xffffff); g.p(12, 9, 0xffffff);
+        break;
+      default:
+        g.box(8, 14, 4, 8, PALETTE.woodDark, INK);
+        g.circle(7, 11, 5, INK); g.circle(13, 11, 5, INK); g.circle(10, 7, 5.5, INK);
+        g.circle(7, 11, 4, leafDk); g.circle(13, 11, 4, leafDk); g.circle(10, 7, 4.5, leaf);
+        g.p(9, 5, leafHi);
     }
+  });
+}
+
+export function gardenArt(scene: Phaser.Scene, kind: string, wWorld: number): string {
+  const aw = Math.min(96, Math.round(wWorld / PX));
+  return makePx(scene, `garden-${kind}-${aw}`, aw + 20, 14, (g) => {
+    const cx = Math.floor((aw + 20) / 2);
+    if (kind === "flowers") {
+      for (let i = 0; i < 8; i++) {
+        const x = 10 + i * Math.floor((aw - 12) / 7);
+        if (Math.abs(x - cx) < 10) continue;
+        g.rect(x, 6, 3, 3, PALETTE.leafDark);
+        g.p(x + 1, 6, [0xffaec4, 0xfff099, 0xffffff, 0xb8d8ff][i % 4]!);
+      }
+    } else if (kind === "hedge") {
+      g.rbox(8, 3, Math.floor(aw * 0.34), 7, PALETTE.leafDark, INK);
+      g.hline(10, 4, Math.floor(aw * 0.34) - 4, PALETTE.leaf);
+      g.rbox(aw + 12 - Math.floor(aw * 0.34), 3, Math.floor(aw * 0.34), 7, PALETTE.leafDark, INK);
+      g.hline(aw + 14 - Math.floor(aw * 0.34), 4, Math.floor(aw * 0.34) - 4, PALETTE.leaf);
+    } else if (kind === "rocks") {
+      for (let i = 0; i < 4; i++) {
+        const rx = aw - 6 - i * 8;
+        g.rbox(rx, 5 + (i % 2) * 2, 6, 5, PALETTE.stone, INK);
+        g.hline(rx + 1, 6 + (i % 2) * 2, 3, PALETTE.stoneLight);
+      }
+    } else if (kind === "pond") {
+      g.ellipse(aw + 2, 7, 13, 5.5, INK);
+      g.ellipse(aw + 2, 7, 12, 4.5, PALETTE.water);
+      g.hline(aw - 4, 6, 5, PALETTE.waterFoam);
+    }
+  });
+}
+
+export function landmark(scene: Phaser.Scene, kind: string, colour: number): string {
+  const c = roofColour(COLOURS.indexOf(colour as (typeof COLOURS)[number]) >= 0 ? COLOURS.indexOf(colour as (typeof COLOURS)[number]) : 0);
+  return makePx(scene, `landmark-${kind}-${c.toString(16)}`, 24, 48, (g) => {
+    g.ellipse(12, 45, 9, 3, 0x000000, 0.2);
+    switch (kind) {
+      case "clocktower":
+        g.box(7, 14, 10, 31, PALETTE.cream, INK);
+        for (let i = 0; i < 8; i++) g.hline(12 - i, 6 + i, i * 2 + 1, c);
+        g.circle(12, 20, 3.5, INK); g.circle(12, 20, 2.5, PALETTE.white);
+        break;
+      case "windmill":
+        g.box(7, 18, 10, 27, PALETTE.cream, INK);
+        g.box(6, 14, 12, 5, c, INK);
+        g.box(10, 37, 4, 8, PALETTE.woodDark, INK);
+        break;
+      case "observatory":
+        g.box(5, 22, 14, 23, PALETTE.stoneLight, INK);
+        g.circle(12, 22, 7, INK); g.circle(12, 22, 6, 0xdce4f0);
+        g.line(12, 20, 18, 13, INK);
+        break;
+      case "watertower":
+        g.line(7, 44, 9, 22, INK); g.line(17, 44, 15, 22, INK); g.hline(8, 34, 8, INK);
+        g.rbox(5, 10, 14, 13, PALETTE.wood, INK);
+        break;
+      default:
+        g.box(9, 10, 6, 35, PALETTE.stone, INK);
+        g.hline(10, 8, 4, PALETTE.stoneLight);
+    }
+  });
+}
+
+export function sails(scene: Phaser.Scene): string {
+  return makePx(scene, "sails", 26, 26, (g) => {
+    g.line(13, 13, 2, 6, PALETTE.wood); g.line(13, 13, 24, 20, PALETTE.wood);
+    g.line(13, 13, 20, 2, PALETTE.wood); g.line(13, 13, 6, 24, PALETTE.wood);
+    g.circle(13, 13, 2, INK);
+  });
+}
+
+export function lamp(scene: Phaser.Scene): string {
+  return makePx(scene, "lamp", 9, 22, (g) => {
+    g.ellipse(4.5, 20, 3.5, 1.5, 0x000000, 0.2);
+    g.vline(4, 6, 14, INK);
+    g.box(2, 1, 5, 6, PALETTE.lit, INK);
+    g.hline(1, 1, 7, INK);
   });
 }
 
 export function bench(scene: Phaser.Scene): string {
-  make(scene, "bench", 50, 22, (g) => {
-    roundRect(g, 2, 4, 46, 7, 3, PALETTE.wood, INK, 1.5);
-    roundRect(g, 6, 10, 5, 11, 2, PALETTE.woodDark);
-    roundRect(g, 39, 10, 5, 11, 2, PALETTE.woodDark);
+  return makePx(scene, "bench", 22, 11, (g) => {
+    g.rect(1, 8, 20, 3, 0x000000, 0.18);
+    g.box(1, 1, 20, 4, PALETTE.wood, INK);
+    g.box(1, 4, 20, 4, PALETTE.woodLight, INK);
+    g.rect(3, 8, 2, 3, INK);
+    g.rect(17, 8, 2, 3, INK);
   });
-  return "bench";
 }
 
-/** A small house for the districts beyond. */
+/** Sidewalk mailbox/signal post outside each committee house (green = open, red = held). */
+export function signal(scene: Phaser.Scene): string {
+  makePx(scene, "signal", 10, 18, (g) => {
+    g.ellipse(5, 16, 4, 1.5, 0x000000, 0.2);
+    g.box(4, 8, 2, 9, PALETTE.woodDark, INK);
+    g.rbox(1, 2, 8, 7, PALETTE.navy, INK);
+    g.hline(2, 3, 6, shade(PALETTE.navy, 24));
+  });
+  makePx(scene, "lamp-red", 6, 6, (g) => { g.circle(3, 3, 2.5, INK); g.circle(3, 3, 1.8, PALETTE.red); });
+  makePx(scene, "lamp-green", 6, 6, (g) => { g.circle(3, 3, 2.5, INK); g.circle(3, 3, 1.8, PALETTE.green); });
+  return "signal";
+}
+
+/** Striped approval toll gate across a house's front garden path. */
+export function gate(scene: Phaser.Scene): string {
+  makePx(scene, "gate-post", 5, 14, (g) => g.box(0, 0, 5, 14, PALETTE.stoneDark, INK));
+  makePx(scene, "barrier", 28, 5, (g) => {
+    g.box(0, 0, 28, 5, PALETTE.white, INK);
+    for (let x = 3; x < 24; x += 6) g.rect(x, 1, 3, 3, PALETTE.red);
+  });
+  return "barrier";
+}
+
+export function sheet(scene: Phaser.Scene): string {
+  return makePx(scene, "sheet", 12, 4, (g) => g.box(0, 0, 12, 4, PALETTE.white, INK));
+}
+
+export function envelope(scene: Phaser.Scene, color: number): string {
+  return makePx(scene, `env-${color.toString(16)}`, 9, 7, (g) => {
+    g.box(0, 0, 9, 7, PALETTE.white, INK);
+    g.line(1, 1, 4, 4, color);
+    g.line(7, 1, 4, 4, color);
+    g.p(4, 3, color);
+  });
+}
+
+export function boards(scene: Phaser.Scene): string {
+  return makePx(scene, "boards", 24, 14, (g) => {
+    g.box(0, 1, 24, 4, PALETTE.wood, INK);
+    g.box(0, 8, 24, 4, PALETTE.wood, INK);
+  });
+}
+
 export function cottage(scene: Phaser.Scene, wall: number): string {
-  const key = `cottage-${wall.toString(16)}`;
-  make(scene, key, 60, 54, (g) => {
-    g.fillStyle(Phaser.Display.Color.IntegerToColor(wall).darken(25).color, 1).fillTriangle(2, 22, 30, 2, 58, 22);
-    g.lineStyle(2, INK, 1).strokeTriangle(2, 22, 30, 2, 58, 22);
-    roundRect(g, 7, 20, 46, 32, 5, wall, INK, 2);
-    roundRect(g, 25, 34, 10, 18, 4, PALETTE.woodDark);
-    roundRect(g, 12, 27, 9, 8, 2, PALETTE.lit, INK, 1);
-    roundRect(g, 39, 27, 9, 8, 2, PALETTE.lit, INK, 1);
+  return makePx(scene, `cottage-${wall.toString(16)}`, 26, 26, (g) => {
+    const r = shade(wall, -40);
+    g.rect(3, 12, 22, 13, 0x000000, 0.2);
+    g.box(3, 11, 20, 13, wall, INK);
+    g.box(1, 4, 24, 9, r, INK);
+    g.hline(2, 8, 22, shade(r, 20));
+    g.box(11, 16, 4, 8, PALETTE.woodDark, INK);
+    g.box(5, 15, 4, 4, PALETTE.lit, INK);
+    g.box(17, 15, 4, 4, PALETTE.lit, INK);
   });
-  return key;
 }
 
-/** A little train for the rail line. */
 export function train(scene: Phaser.Scene): string {
-  make(scene, "train", 46, 90, (g) => {
-    roundRect(g, 4, 2, 38, 40, 12, PALETTE.red, INK, 2.5);
-    roundRect(g, 10, 8, 26, 12, 4, PALETTE.lit, INK, 1.5);
-    roundRect(g, 4, 46, 38, 40, 8, PALETTE.navy, INK, 2.5);
-    roundRect(g, 10, 52, 26, 10, 3, PALETTE.lit, INK, 1.5);
+  return makePx(scene, "train", 20, 44, (g) => {
+    g.rect(2, 2, 18, 42, 0x000000, 0.22);
+    g.rbox(1, 1, 18, 20, PALETTE.red, INK);
+    g.box(4, 4, 12, 6, PALETTE.lit, INK);
+    g.box(7, 13, 6, 4, PALETTE.amber, INK);
+    g.rbox(1, 23, 18, 20, PALETTE.navy, INK);
+    g.box(4, 27, 12, 5, PALETTE.lit, INK);
+    g.box(4, 34, 12, 5, PALETTE.lit, INK);
   });
-  return "train";
 }
 
-/** Monuments by style: each project's quarter uses one. */
+export function townGate(scene: Phaser.Scene): string {
+  return makePx(scene, "towngate", 34, 44, (g) => {
+    g.rect(4, 36, 28, 7, 0x000000, 0.18);
+    g.box(2, 10, 8, 32, PALETTE.stone, INK);
+    g.box(24, 10, 8, 32, PALETTE.stone, INK);
+    g.box(0, 4, 34, 10, PALETTE.stoneLight, INK);
+    g.hline(2, 7, 30, PALETTE.stoneDark);
+    g.box(13, 1, 8, 5, PALETTE.amber, INK);
+  });
+}
+
+export function skyline(scene: Phaser.Scene): string {
+  return makePx(scene, "skyline", 180, 48, (g) => {
+    const blocks = [[2, 22, 22], [26, 10, 20], [48, 26, 24], [74, 4, 22], [98, 16, 26], [126, 10, 22], [150, 22, 26]] as const;
+    for (const [x, y, w] of blocks) {
+      g.box(x, y, w, 47 - y, 0x9fa3ba, INK);
+      g.hline(x + 1, y + 1, w - 2, 0xbcc0d6);
+      for (let wy = y + 5; wy < 43; wy += 6) {
+        for (let wx = x + 3; wx < x + w - 4; wx += 5) g.rect(wx, wy, 2, 3, PALETTE.lit);
+      }
+    }
+  });
+}
+
 export const STYLES = ["obelisk", "clocktower", "lighthouse", "pagoda", "greenhouse", "block"] as const;
 export type Style = (typeof STYLES)[number];
 
 export function monument(scene: Phaser.Scene, style: Style, size: number): string {
-  const h = Math.round(size);
-  const key = `mon-${style}-${h}`;
-  make(scene, key, 60, h + 16, (g) => {
-    g.fillStyle(0x000000, 0.14).fillEllipse(30, h + 11, 44, 9);
-    const base = h + 8;
+  const h = Math.max(14, Math.min(36, Math.round(size / 2)));
+  return makePx(scene, `mon-${style}-${h}`, 24, h + 8, (g) => {
+    const base = h + 4;
+    g.ellipse(12, base + 1, 9, 2.5, 0x000000, 0.2);
     switch (style) {
       case "obelisk":
-        g.fillStyle(PALETTE.stone, 1).fillPoints(pts([[20, base], [24, 10], [30, 2], [36, 10], [40, base]]), true);
-        g.lineStyle(2, INK, 1).strokePoints(pts([[20, base], [24, 10], [30, 2], [36, 10], [40, base]]), true);
+        g.box(9, 4, 6, base - 4, PALETTE.stoneLight, INK);
+        g.hline(10, 2, 4, PALETTE.stone);
         break;
       case "clocktower":
-        roundRect(g, 18, 14, 24, base - 14, 4, 0xe8c48a, INK, 2);
-        g.fillStyle(0xb5503f, 1).fillTriangle(15, 16, 30, 1, 45, 16);
-        g.lineStyle(2, INK, 1).strokeTriangle(15, 16, 30, 1, 45, 16);
-        g.fillStyle(0xffffff, 1).fillCircle(30, 26, 6);
-        g.lineStyle(1.5, INK, 1).strokeCircle(30, 26, 6);
+        g.box(7, 7, 10, base - 7, 0xe8c48a, INK);
+        g.box(6, 4, 12, 4, PALETTE.terracotta, INK);
+        g.circle(12, 12, 3, PALETTE.white);
         break;
       case "lighthouse":
-        g.fillStyle(0xffffff, 1).fillPoints(pts([[21, base], [25, 14], [35, 14], [39, base]]), true);
-        g.fillStyle(PALETTE.red, 1);
-        for (let y = 22; y < base - 6; y += 16) g.fillRect(23, y, 14, 7);
-        g.lineStyle(2, INK, 1).strokePoints(pts([[21, base], [25, 14], [35, 14], [39, base]]), true);
-        roundRect(g, 24, 4, 12, 11, 3, PALETTE.lit, INK, 2);
+        g.box(8, 6, 8, base - 6, PALETTE.white, INK);
+        for (let y = 9; y < base - 3; y += 6) g.rect(9, y, 6, 3, PALETTE.red);
+        g.box(9, 2, 6, 5, PALETTE.lit, INK);
         break;
       case "pagoda":
-        for (let k = 0; k < Math.max(2, Math.round(h / 22)); k++) {
-          const y = base - (k + 1) * 20, w = 40 - k * 6;
-          roundRect(g, 30 - w / 2 + 4, y + 6, w - 8, 14, 3, 0xf4e3c3, INK, 1.5);
-          g.fillStyle(0xc4493c, 1).fillTriangle(30 - w / 2 - 2, y + 8, 30, y - 2, 30 + w / 2 + 2, y + 8);
-          g.lineStyle(1.5, INK, 1).strokeTriangle(30 - w / 2 - 2, y + 8, 30, y - 2, 30 + w / 2 + 2, y + 8);
+        for (let k = 0; k < Math.max(2, Math.floor(h / 9)); k++) {
+          const y = base - (k + 1) * 8, w = 16 - k * 2;
+          g.box(12 - Math.floor(w / 2), y + 2, w, 6, PALETTE.cream, INK);
+          g.hline(12 - Math.floor(w / 2) - 1, y + 1, w + 2, PALETTE.terracotta);
         }
         break;
       case "greenhouse":
-        roundRect(g, 10, 14, 40, base - 14, { tl: 18, tr: 18, bl: 3, br: 3 } as unknown as number, 0xd8f5e3, INK, 2);
-        g.lineStyle(1.5, 0x6bbf8a, 1);
-        for (let x = 18; x < 46; x += 8) g.beginPath().moveTo(x, 18).lineTo(x, base).strokePath();
-        g.fillStyle(PALETTE.leaf, 1).fillCircle(24, base - 6, 5).fillCircle(36, base - 5, 6);
+        g.rbox(5, 6, 14, base - 6, 0xcff2de, INK);
+        g.vline(10, 7, base - 8, 0x6bbf8a); g.vline(14, 7, base - 8, 0x6bbf8a);
         break;
-      case "block":
-        roundRect(g, 16, 6, 28, base - 6, 1, 0xb9b6b0, INK, 2);
-        g.fillStyle(0x8e8a83, 1);
-        for (let y = 12; y < base - 6; y += 10) g.fillRect(20, y, 20, 4);
-        break;
+      default:
+        g.box(7, 4, 10, base - 4, PALETTE.stone, INK);
+        for (let y = 7; y < base - 3; y += 4) g.hline(9, y, 6, PALETTE.stoneDark);
     }
-    roundRect(g, 14, base - 2, 32, 7, 2, PALETTE.stoneDark, INK, 1.5);
+    g.box(5, base - 2, 14, 4, PALETTE.stoneDark, INK);
   });
-  return key;
 }
 
-/** The skyline of the parent Senate, beyond the river. */
-export function skyline(scene: Phaser.Scene): string {
-  make(scene, "skyline", 420, 120, (g) => {
-    const blocks = [[0, 50, 50], [54, 20, 44], [102, 64, 56], [162, 8, 48], [214, 40, 60], [278, 26, 46], [328, 56, 50], [382, 30, 36]];
-    for (const [x, y, w] of blocks) {
-      roundRect(g, x!, y!, w!, 118 - y!, 6, 0xc8c3d9, INK, 2);
-      for (let wy = y! + 10; wy < 108; wy += 14) for (let wx = x! + 7; wx < x! + w! - 8; wx += 12) g.fillStyle(PALETTE.lit, 0.9).fillRect(wx, wy, 5, 6);
+export function tool(scene: Phaser.Scene, kind: keyof typeof TOOLS): string {
+  return makePx(scene, `tool-${kind}`, 9, 9, (g) => {
+    switch (kind) {
+      case "bash": g.line(1, 7, 5, 3, PALETTE.woodDark); g.box(4, 0, 5, 4, 0x8d93a3, INK); break;
+      case "edit": g.line(1, 7, 6, 2, INK); g.rect(4, 1, 4, 4, PALETTE.white); break;
+      case "read": g.box(1, 2, 7, 6, PALETTE.red, INK); g.vline(4, 3, 4, PALETTE.white); break;
+      case "grep": g.circle(3.5, 3.5, 2.5, PALETTE.glass); g.line(5, 5, 8, 8, INK); break;
+      case "mcp": g.box(1, 2, 7, 6, PALETTE.woodLight, INK); g.vline(4, 2, 6, INK); break;
+      case "web": g.vline(2, 1, 7, INK); g.rect(3, 1, 5, 4, TOOLS.web); break;
     }
   });
-  return "skyline";
 }
 
-export function townGate(scene: Phaser.Scene): string {
-  make(scene, "towngate", 90, 110, (g) => {
-    roundRect(g, 4, 20, 20, 88, 6, PALETTE.stone, INK, 2);
-    roundRect(g, 66, 20, 20, 88, 6, PALETTE.stone, INK, 2);
-    g.lineStyle(10, PALETTE.stone, 1).beginPath().arc(45, 34, 33, Math.PI, 0).strokePath();
-    g.lineStyle(2, INK, 1).beginPath().arc(45, 34, 38, Math.PI, 0).strokePath().beginPath().arc(45, 34, 28, Math.PI, 0).strokePath();
-    g.fillStyle(PALETTE.amber, 1).fillCircle(45, 4, 4);
+export function bar(scene: Phaser.Scene, wWorld: number, hWorld: number, fill: number, stroke?: number): string {
+  const aw = Math.max(2, Math.round(wWorld / PX)), ah = Math.max(2, Math.round(hWorld / PX));
+  return makePx(scene, `bar-${aw}-${ah}-${fill.toString(16)}-${stroke?.toString(16) ?? ""}`, aw, ah, (g) => {
+    if (stroke !== undefined) g.box(0, 0, aw, ah, fill, stroke);
+    else g.rect(0, 0, aw, ah, fill);
   });
-  return "towngate";
 }
 
-/** A soft round glow, added over lit windows and tubes at dusk and night. */
 export function glow(scene: Phaser.Scene): string {
   if (!scene.textures.exists("glow")) {
     const c = scene.textures.createCanvas("glow", 64, 64)!;
     const ctx = c.getContext();
     const grad = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
-    grad.addColorStop(0, "rgba(255,226,150,1)");
-    grad.addColorStop(1, "rgba(255,226,150,0)");
+    grad.addColorStop(0, "rgba(255,226,140,0.95)");
+    grad.addColorStop(1, "rgba(255,226,140,0)");
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, 64, 64);
     c.refresh();
@@ -551,423 +1381,225 @@ export function glow(scene: Phaser.Scene): string {
   return "glow";
 }
 
-// MARK: Generated houses, plants and characters
-
-
-/** Where a house's four terminal bays sit, from its centre, and how big. */
-export function bayPlaces(spec: HouseSpec): { xs: number[]; y: number; scale: number } {
-  const { w } = houseSize(spec);
-  const inner = w - 56;
-  const xs = [0, 1, 2, 3].map((i) => -inner / 2 + (i * inner) / 3);
-  return { xs, y: spec.storeys === 2 ? 22 : -6, scale: w < 200 ? 0.88 : 1 };
+export function weatherArt(scene: Phaser.Scene) {
+  makePx(scene, "puff", 7, 7, (g) => g.circle(3.5, 3.5, 3, PALETTE.white));
+  makePx(scene, "drop", 2, 6, (g) => g.rect(0, 0, 1, 5, 0xbcd6f0));
+  makePx(scene, "flake", 3, 3, (g) => { g.p(1, 0, PALETTE.white); g.hline(0, 1, 3, PALETTE.white); g.p(1, 2, PALETTE.white); });
+  if (!scene.textures.exists("cloud")) {
+    const c = scene.textures.createCanvas("cloud", 160, 88)!;
+    const ctx = c.getContext();
+    for (let k = 0; k < 8; k++) {
+      const f = 1 - k * 0.1;
+      ctx.fillStyle = "rgba(0,0,0,0.08)";
+      ctx.beginPath();
+      ctx.ellipse(60, 48, 48 * f, 26 * f, 0, 0, Math.PI * 2);
+      ctx.ellipse(105, 42, 46 * f, 28 * f, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    c.refresh();
+  }
 }
 
-/** A generated house: body, material, roof, topper, door, sign and window band. */
-export function house(scene: Phaser.Scene, spec: HouseSpec): { key: string; w: number; h: number } {
-  const { w, h } = houseSize(spec);
-  const key = `house-${houseKey(spec)}`;
-  const top = 54; // room above the body for roofs and toppers
-  make(scene, key, w + 12, h + top + 10, (g) => {
-    const wall = COLOURS[spec.wall]!, trim = COLOURS[spec.trim]!;
-    const dark = Phaser.Display.Color.IntegerToColor(wall).darken(22).color;
-    const x0 = 6, y0 = top, x1 = x0 + w, y1 = y0 + h;
-    g.fillStyle(0x000000, 0.13).fillRoundedRect(x0 + 5, y0 + 6, w, h, 16);
-    // Roof first, behind the body's top edge.
-    const roof = Phaser.Display.Color.IntegerToColor(trim).darken(12).color;
-    g.fillStyle(roof, 1).lineStyle(3, INK, 1);
-    switch (spec.roof) {
-      case "gable":
-        g.fillTriangle(x0 - 4, y0 + 8, x0 + w / 2, y0 - 46, x1 + 4, y0 + 8).strokeTriangle(x0 - 4, y0 + 8, x0 + w / 2, y0 - 46, x1 + 4, y0 + 8);
-        break;
-      case "flat":
-        g.fillRoundedRect(x0 - 4, y0 - 12, w + 8, 22, 6).strokeRoundedRect(x0 - 4, y0 - 12, w + 8, 22, 6);
-        break;
-      case "dome":
-        g.fillEllipse(x0 + w / 2, y0 + 6, w * 0.7, 90).strokeEllipse(x0 + w / 2, y0 + 6, w * 0.7, 90);
-        break;
-      case "stepped":
-        g.fillRoundedRect(x0 + 8, y0 - 18, w - 16, 28, 5).strokeRoundedRect(x0 + 8, y0 - 18, w - 16, 28, 5);
-        g.fillRoundedRect(x0 + w * 0.3, y0 - 38, w * 0.4, 26, 5).strokeRoundedRect(x0 + w * 0.3, y0 - 38, w * 0.4, 26, 5);
-        break;
-      case "mansard":
-        g.fillPoints(pts([[x0 - 4, y0 + 10], [x0 + 18, y0 - 26], [x1 - 18, y0 - 26], [x1 + 4, y0 + 10]]), true)
-          .strokePoints(pts([[x0 - 4, y0 + 10], [x0 + 18, y0 - 26], [x1 - 18, y0 - 26], [x1 + 4, y0 + 10]]), true);
-        for (const dx of [0.3, 0.7]) roundRect(g, x0 + w * dx - 9, y0 - 20, 18, 18, 5, PALETTE.lit, INK, 2);
-        break;
-      default: // sawtooth
-        for (let i = 0; i < Math.floor((w - 20) / 29); i++) {
-          const x = x0 + 10 + i * 29;
-          g.fillTriangle(x, y0 + 6, x + 29, y0 + 6, x + 29, y0 - 14);
-          g.beginPath().moveTo(x, y0 + 6).lineTo(x + 29, y0 - 14).lineTo(x + 29, y0 + 6).strokePath();
-        }
-    }
-    // Topper on the roof.
-    const tx = x0 + w * 0.78;
-    switch (spec.topper) {
-      case "chimney": roundRect(g, tx, y0 - 34, 16, 30, 3, 0xb5503f, INK, 2); break;
-      case "antenna": g.lineStyle(3, INK, 1).beginPath().moveTo(tx, y0 - 6).lineTo(tx, y0 - 48).moveTo(tx - 10, y0 - 40).lineTo(tx + 10, y0 - 40).strokePath(); break;
-      case "vent": roundRect(g, tx - 6, y0 - 26, 22, 22, 11, PALETTE.stoneDark, INK, 2); break;
-      case "flag": g.lineStyle(3, INK, 1).beginPath().moveTo(tx, y0 - 4).lineTo(tx, y0 - 50).strokePath(); g.fillStyle(COLOURS[spec.signColour]!, 1).fillTriangle(tx + 1, y0 - 50, tx + 24, y0 - 43, tx + 1, y0 - 36); break;
-      case "tank": roundRect(g, tx - 10, y0 - 40, 30, 24, 8, 0x9fb7c9, INK, 2); g.lineStyle(2, INK, 1).beginPath().moveTo(tx - 4, y0 - 16).lineTo(tx - 4, y0 - 2).moveTo(tx + 14, y0 - 16).lineTo(tx + 14, y0 - 2).strokePath(); break;
-      case "clock": g.fillStyle(0xffffff, 1).fillCircle(x0 + w / 2, y0 - 6, 12); g.lineStyle(2, INK, 1).strokeCircle(x0 + w / 2, y0 - 6, 12).beginPath().moveTo(x0 + w / 2, y0 - 6).lineTo(x0 + w / 2, y0 - 14).moveTo(x0 + w / 2, y0 - 6).lineTo(x0 + w / 2 + 6, y0 - 3).strokePath(); break;
-    }
-    // The body and its material.
-    roundRect(g, x0, y0, w, h, 16, wall, INK, 3);
-    g.fillStyle(dark, 0.35);
-    switch (spec.material) {
-      case "brick":
-        for (let y = y0 + 10; y < y1 - 14; y += 12) for (let x = x0 + 8 + ((y / 12) % 2) * 10; x < x1 - 14; x += 22) g.fillRect(x, y, 14, 4);
-        break;
-      case "timber":
-        g.lineStyle(2, dark, 0.45);
-        for (let x = x0 + 16; x < x1 - 8; x += 18) g.beginPath().moveTo(x, y0 + 6).lineTo(x, y1 - 10).strokePath();
-        break;
-      case "panel":
-        g.lineStyle(2, dark, 0.4);
-        for (let x = x0 + w / 4; x < x1 - 8; x += w / 4) g.beginPath().moveTo(x, y0 + 4).lineTo(x, y1 - 10).strokePath();
-        g.beginPath().moveTo(x0 + 4, y0 + h / 2).lineTo(x1 - 4, y0 + h / 2).strokePath();
-        break;
-    }
-    // The plinth in the trim colour.
-    roundRect(g, x0 + 2, y1 - 14, w - 4, 12, 6, trim, INK, 2);
-    // An upper floor: a row of small windows.
-    if (spec.storeys === 2) {
-      for (let i = 0; i < 4; i++) {
-        const wx = x0 + 22 + (i * (w - 64)) / 3;
-        const shape = spec.windows;
-        if (shape === "round") { g.fillStyle(PALETTE.unlit, 1).fillCircle(wx + 10, y0 + 24, 10); g.lineStyle(2, INK, 1).strokeCircle(wx + 10, y0 + 24, 10); }
-        else roundRect(g, wx, y0 + 12, 20, 24, shape === "arch" ? 10 : 3, PALETTE.unlit, INK, 2);
-      }
-    }
-    // The band where the bays sit (they are drawn live on top).
-    const by = y0 + (spec.storeys === 2 ? 50 : 22);
-    roundRect(g, x0 + 10, by, w - 20, 58, 12, Phaser.Display.Color.IntegerToColor(wall).lighten(12).color, INK, 2);
-    // The door and its sign above.
-    const dc = COLOURS[spec.doorColour]!;
-    const dw = spec.door === "double" ? 40 : 28, dx = x0 + w / 2 - dw / 2, dy = y1 - 50;
-    roundRect(g, dx, dy, dw, 40, spec.door === "round" ? 13 : 4, Phaser.Display.Color.IntegerToColor(dc).darken(28).color, INK, 2);
-    if (spec.door === "double") g.lineStyle(2, INK, 1).beginPath().moveTo(dx + dw / 2, dy + 2).lineTo(dx + dw / 2, dy + 40).strokePath();
-    g.fillStyle(PALETTE.amber, 1).fillCircle(dx + dw - 7, dy + 22, 2.5);
-    const sc = COLOURS[spec.signColour]!, sx = x0 + w / 2, sy = by - 2;
-    g.fillStyle(sc, 1).lineStyle(2, INK, 1);
-    switch (spec.sign) {
-      case "round": g.fillCircle(sx, sy, 9).strokeCircle(sx, sy, 9); break;
-      case "diamond": g.fillPoints(pts([[sx, sy - 11], [sx + 11, sy], [sx, sy + 11], [sx - 11, sy]]), true).strokePoints(pts([[sx, sy - 11], [sx + 11, sy], [sx, sy + 11], [sx - 11, sy]]), true); break;
-      case "shield": g.fillPoints(pts([[sx - 9, sy - 9], [sx + 9, sy - 9], [sx + 9, sy + 2], [sx, sy + 11], [sx - 9, sy + 2]]), true).strokePoints(pts([[sx - 9, sy - 9], [sx + 9, sy - 9], [sx + 9, sy + 2], [sx, sy + 11], [sx - 9, sy + 2]]), true); break;
-      default: g.fillRoundedRect(sx - 22, sy - 7, 44, 14, 4).strokeRoundedRect(sx - 22, sy - 7, 44, 14, 4);
-    }
-  });
-  return { key, w, h };
+// MARK: 16-bit 4-Directional RPG Characters (16×22 art px → 32×44 world px)
+
+export interface FigureOpts {
+  pose?: "stand" | "wave" | "sit" | "work" | "sleep";
+  cane?: boolean;
+  chair?: boolean;
+  glyph?: string;
+  hardhat?: boolean;
 }
 
-/** Where a house's body centre sits in its texture (for placing the image). */
-export const HOUSE_TOP = 54;
-
-/** A landmark beside a house (a chair's choice): a small tower of its own. */
-export function landmark(scene: Phaser.Scene, kind: string, colour: number): string {
-  const key = `landmark-${kind}-${colour.toString(16)}`;
-  make(scene, key, 60, 130, (g) => {
-    g.fillStyle(0x000000, 0.14).fillEllipse(30, 124, 44, 9);
-    switch (kind) {
-      case "clocktower":
-        roundRect(g, 16, 30, 28, 94, 4, colour, INK, 2);
-        g.fillStyle(0xb5503f, 1).fillTriangle(12, 32, 30, 6, 48, 32); g.lineStyle(2, INK, 1).strokeTriangle(12, 32, 30, 6, 48, 32);
-        g.fillStyle(0xffffff, 1).fillCircle(30, 48, 9); g.lineStyle(2, INK, 1).strokeCircle(30, 48, 9);
-        break;
-      case "windmill":
-        g.fillStyle(colour, 1).fillPoints(pts([[18, 124], [24, 50], [36, 50], [42, 124]]), true); g.lineStyle(2, INK, 1).strokePoints(pts([[18, 124], [24, 50], [36, 50], [42, 124]]), true);
-        break;
-      case "observatory":
-        roundRect(g, 12, 62, 36, 62, 4, colour, INK, 2);
-        g.fillStyle(0xdfe6f2, 1).fillEllipse(30, 64, 40, 44); g.lineStyle(2, INK, 1).strokeEllipse(30, 64, 40, 44);
-        g.lineStyle(4, INK, 1).beginPath().moveTo(30, 58).lineTo(44, 40).strokePath();
-        break;
-      case "watertower":
-        g.lineStyle(3, INK, 1).beginPath().moveTo(18, 124).lineTo(22, 60).moveTo(42, 124).lineTo(38, 60).moveTo(20, 96).lineTo(40, 96).strokePath();
-        roundRect(g, 10, 28, 40, 34, 12, colour, INK, 2.5);
-        break;
-      default: // obelisk
-        g.fillStyle(colour, 1).fillPoints(pts([[20, 124], [24, 26], [30, 14], [36, 26], [40, 124]]), true);
-        g.lineStyle(2, INK, 1).strokePoints(pts([[20, 124], [24, 26], [30, 14], [36, 26], [40, 124]]), true);
-    }
-  });
-  return key;
-}
-
-/** A plant by species, its leaves a shade picked by the garden. */
-export function plant(scene: Phaser.Scene, species: string, shade: number): string {
-  const key = `plant-${species}-${shade}`;
-  const leaf = [0x7cc46b, 0x8fd17a, 0x6fb85e, 0x9ccf6a][shade % 4]!, leafDark = Phaser.Display.Color.IntegerToColor(leaf).darken(14).color;
-  make(scene, key, 46, 58, (g) => {
-    g.fillStyle(0x000000, 0.14).fillEllipse(23, 54, 30, 7);
-    switch (species) {
-      case "cone":
-        roundRect(g, 20, 40, 6, 14, 2, PALETTE.woodDark);
-        g.fillStyle(leafDark, 1).fillTriangle(8, 44, 23, 4, 38, 44); g.fillStyle(leaf, 1).fillTriangle(11, 42, 23, 8, 35, 42);
-        break;
-      case "tall":
-        roundRect(g, 20, 34, 6, 20, 2, PALETTE.woodDark);
-        g.fillStyle(leafDark, 1).fillEllipse(23, 24, 22, 44); g.fillStyle(leaf, 1).fillEllipse(22, 22, 18, 40);
-        break;
-      case "bush":
-        g.fillStyle(leafDark, 1).fillCircle(14, 44, 10).fillCircle(30, 44, 10).fillCircle(22, 38, 11);
-        g.fillStyle(leaf, 1).fillCircle(14, 42, 8.5).fillCircle(30, 42, 8.5).fillCircle(22, 36, 9.5);
-        break;
-      case "flowers":
-        g.fillStyle(leafDark, 1).fillEllipse(23, 48, 34, 14);
-        for (const [x, y, c] of [[12, 46, 0xffb7c5], [20, 42, 0xfff2a8], [28, 46, 0xffffff], [34, 43, 0xd6bfe6], [17, 50, 0xffd57e]] as const) g.fillStyle(c, 1).fillCircle(x, y, 3.2);
-        break;
-      case "birch":
-        roundRect(g, 20, 22, 6, 32, 2, 0xf0ece4, INK, 1);
-        g.fillStyle(INK, 1).fillRect(21, 30, 3, 1.5).fillRect(22, 40, 3, 1.5);
-        g.fillStyle(0xbfe39a, 1).fillCircle(16, 18, 10).fillCircle(30, 20, 9).fillCircle(23, 10, 9);
-        break;
-      case "blossom":
-        roundRect(g, 20, 30, 6, 24, 2, PALETTE.woodDark);
-        g.fillStyle(0xf7b2cf, 1).fillCircle(14, 24, 11).fillCircle(32, 24, 11).fillCircle(23, 13, 12);
-        g.fillStyle(0xffffff, 0.6).fillCircle(18, 12, 3).fillCircle(30, 22, 2.5);
-        break;
-      default: // round
-        roundRect(g, 20, 30, 7, 24, 3, PALETTE.woodDark);
-        g.fillStyle(leafDark, 1).fillCircle(14, 26, 12).fillCircle(32, 26, 12).fillCircle(23, 15, 14);
-        g.fillStyle(leaf, 1).fillCircle(14, 24, 10.5).fillCircle(32, 24, 10.5).fillCircle(23, 13, 12.5);
-    }
-  });
-  return key;
-}
-
-/** A character: body shape, skin, hair, hat and accessory from its look; the shirt in its runtime's colour. */
-export interface FigureOpts { pose?: "stand" | "wave" | "sit" | "work"; cane?: boolean; chair?: boolean; glyph?: string; hardhat?: boolean }
-
-/** One frame of a figure: which way it faces and where its limbs are. */
-export interface Frame {
+interface CharFrame {
   dir: "down" | "up" | "side";
-  /** Legs: lift (down/up views) or stride (side view), -1..1, opposite for the two legs. */
   step: number;
-  /** Body bob, px up. */
   bob: number;
-  /** Eyes: -1 left, 0 ahead, 1 right. */
   eyes: number;
-  /** Arms up (a stretch). */
   stretch: boolean;
-  /** Seated (a bench). */
   sit: boolean;
+  pose?: FigureOpts["pose"];
 }
-const STILL: Frame = { dir: "down", step: 0, bob: 0, eyes: 0, stretch: false, sit: false };
 
-/** A figure drawn from the generator's parts, at (cx, base): every look, every frame. */
-function figure(g: G, look: Look, shirt: number, o: FigureOpts, f: Frame, cx: number, base: number) {
-  const pose = o.pose ?? (f.sit ? "sit" : "stand");
-  const skin = SKINS[look.skin]!, hair = HAIRS[look.hairColour]!;
+const STILL: CharFrame = { dir: "down", step: 0, bob: 0, eyes: 0, stretch: false, sit: false };
+
+function drawPixelChar(g: Pix, look: Look, shirt: number, o: FigureOpts, f: CharFrame, ox: number, oy: number) {
+  const pose = f.pose ?? o.pose ?? (f.sit ? "sit" : "stand");
+  const skin = SKINS[look.skin] ?? PALETTE.skin;
+  const hair = HAIRS[look.hairColour] ?? PALETTE.hair;
+  const shirtDk = shade(shirt, -26);
+  const shirtHi = shade(shirt, 22);
+  const pants = 0x3b4259;
   const side = f.dir === "side", back = f.dir === "up";
-  const bw0 = look.body === "round" ? 20 : look.body === "slim" ? 13 : 15;
-  const bw = side ? Math.round(bw0 * 0.72) : bw0;
-  const tall = look.body === "tall" ? 4 : 0;
-  g.fillStyle(0x000000, 0.15).fillEllipse(cx, base - 2, side ? 16 : 20, 5);
-  const by = base - 30 - tall - f.bob + (pose === "sit" ? 5 : 0);
-  const arm = Phaser.Display.Color.IntegerToColor(shirt).darken(12).color;
-  const legH = 14 + tall;
-  // Legs: lifted in turn seen from front or back; striding seen from the side.
+  const cx = ox + 8;
+  const base = oy + 20;
+  const bob = Math.round(f.bob);
+  const tall = look.body === "tall" ? 1 : 0;
+  const bw = side ? 5 : look.body === "round" ? 8 : look.body === "slim" ? 6 : 7;
+
+  // Ground shadow.
+  g.ellipse(cx, base, side ? 3.5 : 4.5, 1.5, 0x000000, 0.24);
+
+  // Legs / stride.
+  const bodyTop = base - 10 - tall - bob + (pose === "sit" ? 2 : 0);
   if (pose === "sit") {
-    roundRect(g, cx - 6, by + 14, 5, 6, 2.5, INK); roundRect(g, cx + 1, by + 14, 5, 6, 2.5, INK);
+    g.rect(cx - 3, bodyTop + 6, 2, 3, pants);
+    g.rect(cx + 1, bodyTop + 6, 2, 3, pants);
   } else if (side) {
-    const d = f.step * 5;
-    roundRect(g, cx - 2.5 - d, base - 16 - tall - f.bob * 0.3, 5, legH, 2.5, INK);
-    roundRect(g, cx - 2.5 + d, base - 16 - tall - f.bob * 0.3, 5, legH, 2.5, Phaser.Display.Color.IntegerToColor(INK).lighten(12).color);
+    const stride = Math.round(f.step * 2);
+    g.rect(cx - 1 - stride, base - 4 - tall, 2, 4 + tall, pants);
+    g.rect(cx - 1 + stride, base - 4 - tall, 2, 4 + tall, shade(pants, 18));
+    g.p(cx - 1 - stride, base - 1, INK);
+    g.p(cx - 1 + stride, base - 1, INK);
   } else {
-    const l = Math.max(0, f.step) * 3.5, r = Math.max(0, -f.step) * 3.5;
-    roundRect(g, cx - 6, base - 16 - tall - l, 5, legH, 2.5, INK);
-    roundRect(g, cx + 1, base - 16 - tall - r, 5, legH, 2.5, INK);
+    const lLift = f.step > 0.35 ? 1 : 0, rLift = f.step < -0.35 ? 1 : 0;
+    g.rect(cx - 3, base - 4 - tall - lLift, 2, 4 + tall, pants);
+    g.rect(cx + 1, base - 4 - tall - rLift, 2, 4 + tall, pants);
+    g.hline(cx - 3, base - 1 - lLift, 2, INK);
+    g.hline(cx + 1, base - 1 - rLift, 2, INK);
   }
-  // Arms swing opposite the legs (or go up for a stretch, or wave, or work).
-  const swing = f.step * 3;
+
+  // Torso (shirt) with crisp dark outline & highlight.
+  const bx = Math.round(cx - bw / 2);
+  g.box(bx - 1, bodyTop, bw + 2, 7, shirt, INK);
+  g.hline(bx, bodyTop + 1, bw, shirtHi);
+  g.hline(bx, bodyTop + 5, bw, shirtDk);
+
+  // Arms.
+  const swing = Math.round(f.step * 1.4);
   if (side) {
-    if (!back) roundRect(g, cx - 2.5 + (f.stretch ? 0 : -swing), f.stretch ? by - 10 : by + 1, 5, 12, 2.5, arm);
+    g.rect(cx - 1 - swing, bodyTop + 1, 2, 4, shirtDk);
+    g.p(cx - 1 - swing, bodyTop + 5, skin);
   } else {
-    const lUp = pose === "wave" || f.stretch, rUp = f.stretch;
-    roundRect(g, cx - bw / 2 - 4, lUp ? by - 9 : by + 1 + swing * 0.9, 5, 12, 2.5, arm);
-    roundRect(g, cx + bw / 2 - 1, rUp ? by - 9 : pose === "work" ? by - 4 : by + 1 - swing * 0.9, 5, 12, 2.5, arm);
+    const lUp = pose === "wave" || f.stretch;
+    const rUp = f.stretch;
+    g.rect(bx - 2, lUp ? bodyTop - 3 : bodyTop + 1 + swing, 2, 4, shirtDk);
+    g.p(bx - 2, lUp ? bodyTop - 4 : bodyTop + 5 + swing, skin);
+    g.rect(bx + bw + 1, rUp ? bodyTop - 3 : pose === "work" ? bodyTop : bodyTop + 1 - swing, 2, 4, shirtDk);
+    g.p(bx + bw + 1, rUp ? bodyTop - 4 : pose === "work" ? bodyTop + 4 : bodyTop + 5 - swing, skin);
   }
-  roundRect(g, cx - bw / 2, by, bw, 17, side ? 6 : 7, shirt, INK, 1.5);
-  if (!back && look.accessory === "scarf") roundRect(g, cx - bw / 2 + 1, by, bw - 2, 5, 2, 0xd2508f);
-  if (!back && !side && look.accessory === "bowtie") g.fillStyle(0xd2508f, 1).fillTriangle(cx - 5, by + 1, cx, by + 4, cx - 5, by + 7).fillTriangle(cx + 5, by + 1, cx, by + 4, cx + 5, by + 7);
-  // The runtime, readable whatever the costume: a small white mark on the shirt.
+
+  // Scarf / bowtie / runtime chest emblem / chair gold pin.
+  if (!back && look.accessory === "scarf") g.hline(bx, bodyTop + 1, bw, 0xd44b82);
+  if (!back && !side && look.accessory === "bowtie") g.hline(cx - 1, bodyTop + 1, 3, 0xd44b82);
   if (o.glyph && !back) {
-    g.lineStyle(1.5, 0xffffff, 1);
-    const gx = cx + (side ? 1 : 0), gy = by + 10;
-    if (o.glyph === "claude") for (let i = 0; i < 4; i++) { const a = (i * Math.PI) / 4; g.beginPath().moveTo(gx - Math.cos(a) * 3, gy - Math.sin(a) * 3).lineTo(gx + Math.cos(a) * 3, gy + Math.sin(a) * 3).strokePath(); }
-    else if (o.glyph === "codex") g.strokeCircle(gx, gy, 3);
-    else if (o.glyph === "agy") g.strokeTriangle(gx, gy - 3.5, gx + 3.5, gy + 2.5, gx - 3.5, gy + 2.5);
+    const gx = side ? cx : cx - 1, gy = bodyTop + 3;
+    if (o.glyph === "claude") { g.p(gx + 1, gy, PALETTE.white); g.p(gx, gy + 1, PALETTE.white); g.p(gx + 2, gy + 1, PALETTE.white); }
+    else if (o.glyph === "codex") { g.rect(gx, gy, 2, 2, PALETTE.white); }
+    else if (o.glyph === "agy") { g.p(gx + 1, gy, PALETTE.white); g.hline(gx, gy + 1, 3, PALETTE.white); }
   }
-  if (o.chair && !back) g.fillStyle(PALETTE.amber, 1).fillCircle(cx + bw / 2 - 4, by + 4, 3).lineStyle(1, INK, 1).strokeCircle(cx + bw / 2 - 4, by + 4, 3);
-  const hy = by - 8;
-  if (look.hair === "long" && !side) g.fillStyle(hair, 1).fillRoundedRect(cx - 9, hy - 6, 18, back ? 20 : 18, 7);
-  if (look.hair === "long" && side) g.fillStyle(hair, 1).fillRoundedRect(cx - 9, hy - 6, 12, 18, 6);
-  g.fillStyle(back && look.hair !== "bald" ? hair : skin, 1).fillCircle(cx, hy, 8);
-  g.lineStyle(1.5, INK, 1).strokeCircle(cx, hy, 8);
+  if (o.chair && !back) g.rect(bx + bw - 2, bodyTop + 1, 2, 2, PALETTE.amber);
+
+  // Head (classic chunky readable 16-bit RPG head: 8×7 art px!).
+  const headY = bodyTop - 7 + (pose === "sleep" ? 2 : 0);
+  if (look.hair === "long") g.box(cx - 5, headY + 1, 10, 7, hair, INK);
+  g.rbox(cx - 4, headY, 8, 7, back && look.hair !== "bald" ? hair : skin, INK);
+
   if (!back) {
     if (look.hair !== "bald") {
-      if (side) g.fillStyle(hair, 1).slice(cx, hy, 8, Math.PI * 0.55, Math.PI * 1.9, false).fillPath();
-      else g.fillStyle(hair, 1).slice(cx, hy, 8, Math.PI * 1.05, Math.PI * 1.95, false).fillPath();
+      g.rect(cx - 3, headY + 1, 6, 2, hair);
+      if (side) g.rect(cx - 3, headY + 1, 3, 4, hair);
+      if (look.hair === "curly") { g.p(cx - 4, headY + 1, hair); g.p(cx + 3, headY + 1, hair); g.p(cx - 1, headY, hair); g.p(cx + 1, headY, hair); }
     }
-    if (look.hair === "curly") { g.fillStyle(hair, 1); for (const dx of side ? [-6, -2, 2] : [-6, -2, 2, 6]) g.fillCircle(cx + dx, hy - 6, 3.4); }
-    const ex = f.eyes * 1.2;
-    if (side) {
-      g.fillStyle(INK, 1).fillCircle(cx + 4, hy + 1, 1.1);
-      g.fillStyle(0xf28b82, 0.55).fillCircle(cx + 5, hy + 3, 1.5);
-      if (look.accessory === "glasses") g.lineStyle(1.2, INK, 1).strokeCircle(cx + 4, hy + 1, 2.4);
+    const ex = f.eyes;
+    if (pose === "sleep") {
+      g.hline(cx - 2, headY + 4, 2, INK); g.hline(cx + 1, headY + 4, 2, INK);
+    } else if (side) {
+      g.p(cx + 2, headY + 4, INK);
+      if (look.accessory === "glasses") g.hline(cx + 1, headY + 4, 3, 0x262130);
     } else {
-      g.fillStyle(INK, 1).fillCircle(cx - 3 + ex, hy + 1, 1.1).fillCircle(cx + 3 + ex, hy + 1, 1.1);
-      g.fillStyle(0xf28b82, 0.55).fillCircle(cx - 5, hy + 3, 1.5).fillCircle(cx + 5, hy + 3, 1.5);
-      if (look.accessory === "glasses") g.lineStyle(1.2, INK, 1).strokeCircle(cx - 3, hy + 1, 2.4).strokeCircle(cx + 3, hy + 1, 2.4);
+      g.p(cx - 2 + ex, headY + 4, INK);
+      g.p(cx + 1 + ex, headY + 4, INK);
+      g.p(cx - 3, headY + 5, 0xe88b82, 0.55);
+      g.p(cx + 2, headY + 5, 0xe88b82, 0.55);
+      if (look.accessory === "glasses") {
+        g.hline(cx - 3, headY + 4, 3, INK); g.hline(cx + 1, headY + 4, 3, INK);
+      }
     }
-  } else if (look.hair === "curly") { g.fillStyle(hair, 1); for (const dx of [-6, -2, 2, 6]) g.fillCircle(cx + dx, hy - 6, 3.4); }
-  if (look.hair === "bun") g.fillStyle(hair, 1).fillCircle(cx + (side ? -6 : 0), hy - 9 + (side ? 4 : 0), 4);
-  if (look.accessory === "headphones" && !side) g.lineStyle(2, INK, 1).beginPath().arc(cx, hy, 9, Math.PI, 0).strokePath().fillStyle(0xd2508f, 1).fillCircle(cx - 9, hy + 1, 2.5).fillCircle(cx + 9, hy + 1, 2.5);
-  if (look.accessory === "headphones" && side) g.lineStyle(2, INK, 1).beginPath().arc(cx, hy, 9, Math.PI, 0).strokePath().fillStyle(0xd2508f, 1).fillCircle(cx, hy + 1, 3);
-  const hatColour = o.hardhat ? PALETTE.amber : COLOURS[look.hatColour]!;
+  }
+  if (look.hair === "bun") g.rect(cx - 1 + (side ? -3 : 0), headY - 2, 3, 2, hair);
+  if (look.accessory === "headphones") {
+    g.hline(cx - 3, headY, 6, INK);
+    g.rect(cx - 5, headY + 3, 2, 2, 0xd44b82);
+    g.rect(cx + 3, headY + 3, 2, 2, 0xd44b82);
+  }
+
+  // Hat.
+  const hatCol = o.hardhat ? PALETTE.amber : roofColour(look.hatColour);
   const hat = o.hardhat ? "hardhat" : look.hat;
   switch (hat) {
-    case "cap": roundRect(g, cx - 8, hy - 9, 16, 6, 3, hatColour, INK, 1); if (!back) g.fillStyle(hatColour, 1).fillRect(cx, hy - 5, side ? 12 : 10, 2.5); break;
-    case "beret": g.fillStyle(hatColour, 1).fillEllipse(cx - 1, hy - 7, 18, 7); break;
-    case "top": roundRect(g, cx - 6, hy - 19, 12, 12, 2, INK); roundRect(g, cx - 9, hy - 8, 18, 3, 1.5, INK); break;
-    case "beanie": g.fillStyle(hatColour, 1).slice(cx, hy - 2, 8.5, Math.PI, 0, false).fillPath(); g.fillCircle(cx, hy - 11, 2.5); break;
-    case "hardhat": g.fillStyle(hatColour, 1).slice(cx, hy - 2, 9, Math.PI, 0, false).fillPath(); g.fillRect(cx - 11, hy - 3, 22, 2.5); break;
+    case "cap":
+      g.rect(cx - 4, headY - 1, 8, 2, hatCol);
+      if (!back) g.hline(cx, headY + 1, side ? 5 : 4, shade(hatCol, -24));
+      break;
+    case "beret": g.rect(cx - 4, headY - 1, 8, 2, hatCol); g.hline(cx - 3, headY - 2, 6, shade(hatCol, 16)); break;
+    case "top": g.box(cx - 3, headY - 5, 6, 5, INK, INK); g.hline(cx - 5, headY, 10, INK); g.hline(cx - 2, headY - 2, 4, PALETTE.amber); break;
+    case "beanie": g.rect(cx - 4, headY - 1, 8, 3, hatCol); g.p(cx, headY - 2, PALETTE.white); break;
+    case "hardhat": g.rect(cx - 4, headY - 1, 8, 3, PALETTE.amber); g.hline(cx - 5, headY + 1, 10, shade(PALETTE.amber, -26)); break;
   }
+
+  // Cane (for elders).
   if (o.cane) {
-    const kx = side ? cx + 7 : cx + bw / 2 + 4;
-    g.lineStyle(2, PALETTE.woodDark, 1).beginPath().moveTo(kx, by + 4).lineTo(kx + 1 + f.step, base - 2).strokePath();
+    const kx = side ? cx + 3 : bx + bw + 2;
+    g.vline(kx, bodyTop + 3, 8, PALETTE.woodDark);
+    g.p(kx - 1, bodyTop + 3, PALETTE.woodDark);
   }
 }
 
 export function character(scene: Phaser.Scene, look: Look, shirt: number, o: FigureOpts = {}): string {
   const pose = o.pose ?? "stand";
   const key = `char-${lookKey(look)}-${shirt.toString(16)}-${pose}-${o.cane ? 1 : 0}-${o.chair ? 1 : 0}-${o.glyph ?? ""}-${o.hardhat ? 1 : 0}`;
-  make(scene, key, 30, 46, (g) => figure(g, look, shirt, o, { ...STILL, sit: pose === "sit" }, 15, 44), FINE);
-  return key;
+  return makePx(scene, key, 16, 22, (g) => {
+    drawPixelChar(g, look, shirt, o, { ...STILL, sit: pose === "sit", pose }, 0, 0);
+  });
 }
 
-/** The frames of a walking, idling figure, in one sheet. */
+export function person(scene: Phaser.Scene, shirt: number, opts: { hair?: number; pose?: "stand" | "wave" | "sit"; cane?: boolean; hat?: number } = {}): string {
+  const look: Look = { body: "slim", hair: "short", hat: opts.hat ? "cap" : "none", accessory: "none", walk: "brisk", deskItem: "mug", skin: 0, hairColour: 0, hatColour: 0 };
+  return character(scene, look, shirt, { pose: opts.pose, cane: opts.cane });
+}
+
 export const WALK_FRAMES = 6;
 export const IDLE = ["still", "breathe", "left", "right", "stretch"] as const;
-export type SheetFrame = `walk-${"down" | "up" | "side"}-${number}` | `idle-${(typeof IDLE)[number]}` | "sit" | "side" | "up";
-const SHEET_SCALE = 2;
+export type SheetFrame = `walk-${"down" | "up" | "side"}-${number}` | `idle-${(typeof IDLE)[number]}` | "sit" | "side" | "up" | "work" | "wave";
 
-/**
- * A figure's sheet: a walk cycle facing down, up and to the side (mirrored
- * for the other side), idle frames (breathing, looking round, a stretch),
- * seated, and standing side-on and from behind. Drawn from the same parts as
- * the character generator, so every look and card walks.
- */
 export function walkSheet(scene: Phaser.Scene, look: Look, shirt: number, o: FigureOpts = {}): string {
-  const key = `walk-${lookKey(look)}-${shirt.toString(16)}-${o.cane ? 1 : 0}-${o.glyph ?? ""}-${o.hardhat ? 1 : 0}`;
-  if (packed.has(key)) return key;
-  const frames: [SheetFrame, Frame][] = [];
+  const key = `walk-${lookKey(look)}-${shirt.toString(16)}-${o.cane ? 1 : 0}-${o.chair ? 1 : 0}-${o.glyph ?? ""}-${o.hardhat ? 1 : 0}`;
+  if (scene.textures.exists(key)) return key;
+  const frames: [SheetFrame, CharFrame][] = [];
   for (const dir of ["down", "up", "side"] as const) {
     for (let i = 0; i < WALK_FRAMES; i++) {
       const p = (i / WALK_FRAMES) * Math.PI * 2;
-      frames.push([`walk-${dir}-${i}`, { ...STILL, dir, step: Math.sin(p), bob: Math.abs(Math.sin(p)) * 1.4 }]);
+      frames.push([`walk-${dir}-${i}`, { ...STILL, dir, step: Math.sin(p), bob: Math.abs(Math.sin(p)) > 0.5 ? 1 : 0 }]);
     }
   }
-  frames.push(["idle-still", STILL], ["idle-breathe", { ...STILL, bob: 0.7 }], ["idle-left", { ...STILL, eyes: -1 }],
-    ["idle-right", { ...STILL, eyes: 1 }], ["idle-stretch", { ...STILL, stretch: true, bob: 1 }],
-    ["sit", { ...STILL, sit: true }], ["side", { ...STILL, dir: "side" }], ["up", { ...STILL, dir: "up" }]);
-  const W = 30, H = 58, cols = 8, rows = Math.ceil(frames.length / cols);
-  const g = scene.make.graphics({ x: 0, y: 0 }, false);
-  g.scaleX = SHEET_SCALE;
-  g.scaleY = SHEET_SCALE;
+  frames.push(
+    ["idle-still", STILL],
+    ["idle-breathe", { ...STILL, bob: 1 }],
+    ["idle-left", { ...STILL, eyes: -1 }],
+    ["idle-right", { ...STILL, eyes: 1 }],
+    ["idle-stretch", { ...STILL, stretch: true, bob: 1 }],
+    ["sit", { ...STILL, sit: true }],
+    ["side", { ...STILL, dir: "side" }],
+    ["up", { ...STILL, dir: "up" }],
+    ["work", { ...STILL, pose: "work" }],
+    ["wave", { ...STILL, pose: "wave" }],
+  );
+  const fw = 16, fh = 22, cols = 8, rows = Math.ceil(frames.length / cols);
+  const c = document.createElement("canvas");
+  c.width = fw * cols;
+  c.height = fh * rows;
+  const g = new Pix(c);
   frames.forEach(([, f], i) => {
-    figure(g, look, shirt, { ...o, pose: undefined }, f, (i % cols) * W + 15, Math.floor(i / cols) * H + 56);
+    drawPixelChar(g, look, shirt, { ...o, pose: undefined }, f, (i % cols) * fw, Math.floor(i / cols) * fh);
   });
-  g.generateTexture("__art", W * cols * SHEET_SCALE, H * rows * SHEET_SCALE);
-  g.destroy();
-  // Packed whole into the atlas; each frame named `<sheet>|<frame>`.
-  pack(scene, key, "__art", W * cols * SHEET_SCALE, H * rows * SHEET_SCALE,
-    frames.map(([name], i) => [`${key}|${name}`, (i % cols) * W * SHEET_SCALE, Math.floor(i / cols) * H * SHEET_SCALE, W * SHEET_SCALE, H * SHEET_SCALE]));
-  scene.textures.remove("__art");
-  return key;
-}
-export const SHEET_UNIT = 1 / SHEET_SCALE;
-
-/** The Speaker's house: the desk's home, near the centre — porch, columns, a flag. */
-export function speakerHouse(scene: Phaser.Scene): string {
-  make(scene, "speaker", 270, 210, (g) => {
-    g.fillStyle(0x000000, 0.13).fillRoundedRect(14, 66, 250, 140, 14);
-    g.fillStyle(0xe7b85e, 1).fillTriangle(4, 72, 135, 14, 266, 72);
-    g.lineStyle(3, INK, 1).strokeTriangle(4, 72, 135, 14, 266, 72);
-    g.lineStyle(3, INK, 1).beginPath().moveTo(135, 14).lineTo(135, -0.5).strokePath();
-    roundRect(g, 10, 68, 250, 136, 14, 0xfff3dc, INK, 3);
-    g.fillStyle(PALETTE.amber, 1).fillRect(12, 78, 246, 7);
-    roundRect(g, 28, 96, 214, 58, 12, 0xfffaf0, INK, 2); // the desk's window band (secretaries drawn live)
-    // The porch: steps and columns.
-    roundRect(g, 60, 182, 150, 14, 4, PALETTE.stone, INK, 2);
-    for (const x of [70, 108, 150, 188]) roundRect(g, x, 158, 12, 28, 4, 0xffffff, INK, 2);
-    roundRect(g, 120, 160, 30, 26, 10, PALETTE.woodDark, INK, 2);
-    g.fillStyle(PALETTE.amber, 1).fillCircle(135, 44, 9);
-    g.lineStyle(2, INK, 1).strokeCircle(135, 44, 9);
+  const tex = scene.textures.addCanvas(key, c)!;
+  tex.setFilter(Phaser.Textures.FilterMode.NEAREST);
+  frames.forEach(([name], i) => {
+    tex.add(`${key}|${name}`, 0, (i % cols) * fw, Math.floor(i / cols) * fh, fw, fh);
   });
-  make(scene, "speaker-flag", 30, 22, (g) => g.fillStyle(PALETTE.amber, 1).fillTriangle(1, 1, 29, 8, 1, 16).lineStyle(2, INK, 1).strokeTriangle(1, 1, 29, 8, 1, 16));
-  return "speaker";
-}
-
-/** Planks for boarding up an archived house. */
-export function boards(scene: Phaser.Scene): string {
-  make(scene, "boards", 60, 40, (g) => {
-    g.fillStyle(PALETTE.wood, 1).lineStyle(2, INK, 1);
-    g.fillRoundedRect(2, 6, 56, 9, 2).strokeRoundedRect(2, 6, 56, 9, 2);
-    g.fillRoundedRect(2, 24, 56, 9, 2).strokeRoundedRect(2, 24, 56, 9, 2);
-  });
-  return "boards";
-}
-
-// MARK: The interior
-
-export function desk(scene: Phaser.Scene, wide: boolean): string {
-  const key = wide ? "desk-wide" : "desk";
-  const w = wide ? 150 : 110;
-  make(scene, key, w, 60, (g) => {
-    g.fillStyle(0x000000, 0.14).fillRoundedRect(6, 40, w - 6, 18, 8);
-    roundRect(g, 2, 18, w - 4, 34, 8, PALETTE.wood, INK, 2.5);
-    roundRect(g, 2, 14, w - 4, 14, 6, Phaser.Display.Color.IntegerToColor(PALETTE.wood).lighten(10).color, INK, 2);
-    roundRect(g, 8, 44, 10, 14, 3, PALETTE.woodDark);
-    roundRect(g, w - 18, 44, 10, 14, 3, PALETTE.woodDark);
-  }, FINE);
   return key;
 }
 
-export function terminal(scene: Phaser.Scene, lit: boolean): string {
-  const key = lit ? "term-lit" : "term-dark";
-  make(scene, key, 54, 44, (g) => {
-    roundRect(g, 2, 2, 50, 34, 6, INK);
-    roundRect(g, 6, 6, 42, 26, 4, lit ? 0x2f3b5a : 0x23262f);
-    if (lit) {
-      g.lineStyle(2.5, 0x7ee0a0, 1);
-      for (let i = 0; i < 4; i++) g.beginPath().moveTo(10, 11 + i * 5).lineTo(10 + [26, 18, 30, 12][i]!, 11 + i * 5).strokePath();
-    }
-    roundRect(g, 22, 36, 10, 6, 2, INK);
-  }, FINE);
-  return key;
-}
-
-export function deskItem(scene: Phaser.Scene, kind: string): string {
-  const key = `item-${kind}`;
-  make(scene, key, 26, 26, (g) => {
-    switch (kind) {
-      case "plant": roundRect(g, 7, 15, 12, 10, 3, 0xb5503f, INK, 1.5); g.fillStyle(PALETTE.leaf, 1).fillCircle(9, 11, 5).fillCircle(17, 11, 5).fillCircle(13, 6, 5); break;
-      case "mug": roundRect(g, 6, 9, 13, 15, 3, 0xffffff, INK, 1.5); g.lineStyle(2, INK, 1).strokeCircle(21, 16, 3.5); break;
-      case "lamp": g.lineStyle(2.5, INK, 1).beginPath().moveTo(8, 24).lineTo(12, 10).lineTo(20, 6).strokePath(); g.fillStyle(PALETTE.amber, 1).fillTriangle(15, 4, 24, 4, 20, 12); break;
-      case "cat": g.fillStyle(0x8d7b6e, 1).fillEllipse(13, 19, 20, 11).fillCircle(20, 12, 5).fillTriangle(17, 9, 18, 4, 21, 8).fillTriangle(21, 8, 23, 4, 24, 9); break;
-      case "books": for (const [x, c] of [[4, 0xe1574e], [10, 0x3b86c6], [16, 0xffc145]] as const) roundRect(g, x, 6, 6, 18, 1.5, c, INK, 1.2); break;
-      case "radio": roundRect(g, 3, 10, 20, 14, 3, 0x9fd3ea, INK, 1.5); g.fillStyle(INK, 1).fillCircle(9, 17, 3); g.lineStyle(1.5, INK, 1).beginPath().moveTo(18, 10).lineTo(22, 3).strokePath(); break;
-    }
-  }, FINE);
-  return key;
-}
-
-export function mailSlot(scene: Phaser.Scene): string {
-  make(scene, "mailslot", 50, 16, (g) => roundRect(g, 2, 2, 46, 12, 5, 0xc9a24e, INK, 2), FINE);
-  return "mailslot";
-}
-
-/** A palette colour by index (for the interior's walls). */
+export const SHEET_UNIT = PX;
 export const COLOURS_OF = (i: number) => COLOURS[i] ?? COLOURS[0];
+export const mix = mixHex;

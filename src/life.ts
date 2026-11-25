@@ -1,10 +1,9 @@
-// The town's ambient life: townspeople with small routines (stroll to a
-// bench, the pond, the monuments, the gate; sit; chat in pairs facing each
-// other; wait at a crossing for a capsule; shelter from rain; go home at
-// night), a cat, birds. None of it is Senate data and none of it pretends
-// to be: civilians are free; named senators never take part here.
+// The village's ambient life: townspeople strolling the cobblestone streets
+// and Town Square, sitting on benches, chatting in pairs, stepping aside for
+// message walkers, sheltering from rain, going home at night, plus a pixel cat
+// and birds. None of it invents Senate data or named-senator visits.
 import Phaser from "phaser";
-import { INK, PALETTE } from "./art.ts";
+import { INK, PX } from "./art.ts";
 import { generateLook } from "./gen.ts";
 import { seeded } from "./model.ts";
 import type { Grid, Pt, Rect } from "./nav.ts";
@@ -19,7 +18,7 @@ export interface Places {
   gardens: Pt[];
 }
 
-const SHIRTS = [0x9aa7b8, 0xc4b59a, 0x8fb3a6, 0xb79fae, 0xa9b78f, 0xc9a98f, 0xe0a989, 0x9fb6d6];
+const SHIRTS = [0x6e85a3, 0xb59c72, 0x629684, 0x997990, 0x839c64, 0xb88663, 0xc98265, 0x7392b8];
 
 type Plan = "idle" | "going" | "sitting" | "chatting" | "waiting" | "home" | "away";
 interface Civ { p: Person; plan: Plan; until: number; bench?: number; partner?: Civ; child: boolean; rnd: () => number }
@@ -32,7 +31,7 @@ export class Life {
   private scene: Phaser.Scene;
   private grid: Grid;
   private places: Places;
-  private capsules: () => Pt[];
+  private messengers: () => Pt[];
   private reduce: boolean;
   private benchTaken = new Set<number>();
   private cat?: Cat;
@@ -40,40 +39,36 @@ export class Life {
   private nextFlock = 0;
   private rnd = seeded("life");
   weather: Weather = "clear";
-  /** 0..1: how many are out (the hour), times the town's load. */
   life = 1;
-  /** The population cap (viewport and device). */
   cap = 16;
 
-  constructor(scene: Phaser.Scene, grid: Grid, places: Places, capsules: () => Pt[], reduceMotion: boolean) {
+  constructor(scene: Phaser.Scene, grid: Grid, places: Places, messengers: () => Pt[], reduceMotion: boolean) {
     this.scene = scene;
     this.grid = grid;
     this.places = places;
-    this.capsules = capsules;
+    this.messengers = messengers;
     this.reduce = reduceMotion;
     catArt(scene);
     birdArt(scene);
   }
 
-  /** Townspeople, generated and placed (deterministic per town). */
   populate(n: number, hit: (img: Phaser.GameObjects.Image) => void) {
     const spots = [...this.places.spots, ...this.places.benches];
     for (let i = 0; i < n; i++) {
       const rnd = seeded(`civ-${i}`);
       const child = i % 7 === 3;
       const at = this.grid.nearestWalkable(spots[Math.floor(rnd() * spots.length)] ?? { x: 0, y: 0 }) ?? { x: 0, y: 0 };
-      const p = new Person(this.scene, { x: at.x + (rnd() - 0.5) * 40, y: at.y + (rnd() - 0.5) * 30 }, generateLook(`civilian-${i}`),
+      const p = new Person(this.scene, { x: at.x + (rnd() - 0.5) * 28, y: at.y + (rnd() - 0.5) * 22 }, generateLook(`civilian-${i}`),
         SHIRTS[i % SHIRTS.length]!, { gait: child ? "run" : "stroll", child, reduceMotion: this.reduce });
       hit(p.sprite);
       this.civilians.push({ p, plan: "idle", until: performance.now() + rnd() * 4000, child, rnd });
     }
     if (!this.reduce && this.places.gardens.length) {
       const at = this.places.gardens[0]!;
-      this.cat = { img: this.scene.add.image(at.x, at.y, "cat", "cat-sit").setScale(0.5).setOrigin(0.5, 0.9).setDepth(at.y), until: 0, dist: 0 };
+      this.cat = { img: this.scene.add.image(at.x, at.y, "cat", "cat-sit").setScale(PX).setOrigin(0.5, 0.9).setDepth(at.y), until: 0, dist: 0 };
     }
   }
 
-  /** A free townsperson nearest a point, taken off the street for a job. */
   recruit(at: Pt): Person | undefined {
     let best: Civ | undefined, d = Infinity;
     for (const c of this.civilians) {
@@ -89,10 +84,7 @@ export class Life {
     return best.p;
   }
 
-  /** Back to the street. */
-  dismiss(p: Person) {
-    p.owner = undefined;
-  }
+  dismiss(p: Person) { p.owner = undefined; }
 
   private release(c: Civ) {
     if (c.bench !== undefined) this.benchTaken.delete(c.bench);
@@ -104,7 +96,8 @@ export class Life {
     const path = this.grid.path({ x: c.p.x, y: c.p.y }, to);
     if (!path) { c.until = now + 1500; return false; }
     c.plan = "going";
-    c.p.walk(path, () => { c.plan = then; c.until = performance.now() + hold; if (then === "sitting") c.p.sit(); }, c.child ? (c.rnd() < 0.5 ? "run" : "walk") : c.rnd() < 0.3 ? "walk" : "stroll");
+    c.p.walk(path, () => { c.plan = then; c.until = performance.now() + hold; if (then === "sitting") c.p.sit(); },
+      c.child ? (c.rnd() < 0.5 ? "run" : "walk") : c.rnd() < 0.35 ? "walk" : "stroll");
     return true;
   }
 
@@ -112,7 +105,6 @@ export class Life {
     const r = c.rnd();
     const pick = <T>(xs: T[]) => xs[Math.floor(c.rnd() * xs.length)];
     const index = this.civilians.indexOf(c);
-    // Night, or too many out for the hour: home.
     if (index >= active) {
       if (c.plan === "away") { c.until = now + 20_000; return; }
       const home = pick(this.places.homes);
@@ -125,8 +117,8 @@ export class Life {
       const near = this.places.shelters.slice().sort((a, b) => Math.hypot(a.x - c.p.x, a.y - c.p.y) - Math.hypot(b.x - c.p.x, b.y - c.p.y))[0];
       if (near && this.go(c, near, "waiting", 20_000 + c.rnd() * 20_000, now)) return;
     }
-    if (r < 0.2) {
-      const free = this.places.benches.map((b, i) => i).filter((i) => !this.benchTaken.has(i));
+    if (r < 0.22) {
+      const free = this.places.benches.map((_, i) => i).filter((i) => !this.benchTaken.has(i));
       const i = pick(free);
       if (i !== undefined) {
         this.benchTaken.add(i);
@@ -135,12 +127,11 @@ export class Life {
         this.benchTaken.delete(i);
       }
     }
-    if (r < 0.42) {
-      // A chat: the nearest free neighbour; they meet halfway and face each other.
+    if (r < 0.44) {
       const other = this.civilians
         .filter((o, j) => o !== c && j < active && !o.p.owner && (o.plan === "idle" || o.plan === "waiting") && !o.partner)
         .sort((a, b) => Math.hypot(a.p.x - c.p.x, a.p.y - c.p.y) - Math.hypot(b.p.x - c.p.x, b.p.y - c.p.y))[0];
-      if (other && Math.hypot(other.p.x - c.p.x, other.p.y - c.p.y) < 500) {
+      if (other && Math.hypot(other.p.x - c.p.x, other.p.y - c.p.y) < 420) {
         const mid = this.grid.nearestWalkable({ x: (c.p.x + other.p.x) / 2, y: (c.p.y + other.p.y) / 2 });
         if (mid) {
           const hold = 6000 + c.rnd() * 8000;
@@ -154,24 +145,24 @@ export class Life {
               who.plan = "chatting";
               who.until = performance.now() + hold;
               const them = who.partner;
-              if (them) { who.p.face({ x: them.p.x === who.p.x ? who.p.x - dx : them.p.x, y: who.p.y }); }
+              if (them) who.p.face({ x: them.p.x === who.p.x ? who.p.x - dx : them.p.x, y: who.p.y });
             }, "stroll");
             return true;
           };
-          if (meet(c, -11) && meet(other, 11)) return;
+          if (meet(c, -12) && meet(other, 12)) return;
           this.release(c);
         }
       }
     }
-    if (r < 0.55) { c.plan = "waiting"; c.p.stop(); c.until = now + 3000 + c.rnd() * 5000; return; }
+    if (r < 0.56) { c.plan = "waiting"; c.p.stop(); c.until = now + 3000 + c.rnd() * 5000; return; }
     const to = pick(this.places.spots);
-    if (to) this.go(c, { x: to.x + (c.rnd() - 0.5) * 60, y: to.y + (c.rnd() - 0.5) * 40 }, "idle", 1500 + c.rnd() * 3000, now);
+    if (to) this.go(c, { x: to.x + (c.rnd() - 0.5) * 44, y: to.y + (c.rnd() - 0.5) * 32 }, "idle", 1500 + c.rnd() * 3000, now);
   }
 
   update(dt: number, now: number, view: Rect) {
     const on = (p: Pt) => p.x > view.x - 40 && p.x < view.x + view.w + 40 && p.y > view.y - 60 && p.y < view.y + view.h + 60;
     const active = Math.min(this.cap, Math.round(this.civilians.length * this.life));
-    const caps = this.capsules();
+    const walkers = this.messengers();
     for (const c of this.civilians) {
       const p = c.p;
       if (!p.owner) {
@@ -181,19 +172,17 @@ export class Life {
           c.plan = c.plan === "away" ? "away" : "idle";
           this.decide(c, now, active);
         }
-        // Wait at a crossing while a capsule goes by.
-        p.hold = p.moving && caps.some((k) => Math.abs(k.x - p.x) < 34 && Math.abs(k.y - p.y) < 34);
+        p.hold = p.moving && walkers.some((k) => Math.abs(k.x - p.x) < 22 && Math.abs(k.y - p.y) < 22);
       }
       if (c.plan !== "away") p.update(dt, now, on(p));
     }
-    // Passing: two walkers too close step aside.
     for (let i = 0; i < this.civilians.length; i++) {
       const a = this.civilians[i]!.p;
       if (!a.moving) continue;
       for (let j = i + 1; j < this.civilians.length; j++) {
         const b = this.civilians[j]!.p;
         const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy);
-        if (d > 0 && d < 12) { const k = ((12 - d) / d) * 0.5; a.nudge(-dy * k * 0.5, dx * k * 0.5); b.nudge(dy * k * 0.5, -dx * k * 0.5); }
+        if (d > 0 && d < 14) { const k = ((14 - d) / d) * 0.5; a.nudge(-dy * k * 0.5, dx * k * 0.5); b.nudge(dy * k * 0.5, -dx * k * 0.5); }
       }
     }
     if (!this.reduce) { this.updateCat(dt, now); this.updateBirds(dt, now, view); }
@@ -206,7 +195,7 @@ export class Life {
       if (now < cat.until) return;
       const g = this.places.gardens[Math.floor(this.rnd() * this.places.gardens.length)];
       if (!g) return;
-      cat.to = { x: g.x + (this.rnd() - 0.5) * 40, y: g.y + 10 };
+      cat.to = { x: g.x + (this.rnd() - 0.5) * 32, y: g.y + 8 };
     }
     const dx = cat.to.x - cat.img.x, dy = cat.to.y - cat.img.y, d = Math.hypot(dx, dy);
     if (d < 2) { cat.to = undefined; cat.until = now + 8000 + this.rnd() * 20_000; cat.img.setFrame("cat-sit"); return; }
@@ -224,7 +213,7 @@ export class Life {
       const y0 = view.y + view.h * (0.15 + this.rnd() * 0.5);
       for (let i = 0; i < n; i++) {
         const img = this.scene.add.image(fromLeft ? view.x - 30 - i * 18 : view.x + view.w + 30 + i * 18, y0 + (i % 2) * 12 - i * 3, "bird", "bird-a")
-          .setScale(0.5).setDepth(20_000).setFlipX(!fromLeft);
+          .setScale(PX).setDepth(20_000).setFlipX(!fromLeft);
         this.birds.push({ img, vx: (fromLeft ? 1 : -1) * (70 + this.rnd() * 20), vy: -6, dist: i * 7 });
       }
     }
@@ -250,44 +239,48 @@ export class Life {
 
 function catArt(scene: Phaser.Scene) {
   if (scene.textures.exists("cat")) return;
-  const g = scene.make.graphics({ x: 0, y: 0 }, false);
-  g.scaleX = g.scaleY = 2;
-  const body = (ox: number, legs: number, sit: boolean) => {
-    g.fillStyle(0x000000, 0.15).fillEllipse(ox + 12, 19, 18, 4);
+  const c = document.createElement("canvas");
+  c.width = 36; c.height = 10;
+  const ctx = c.getContext("2d")!;
+  const ink = `#${INK.toString(16).padStart(6, "0")}`;
+  const fur = "#8a7564", dark = "#635245";
+  const draw = (ox: number, leg: number, sit: boolean) => {
+    ctx.fillStyle = "rgba(0,0,0,0.2)"; ctx.fillRect(ox + 2, 8, 8, 2);
+    ctx.fillStyle = fur;
     if (sit) {
-      g.fillStyle(0x8a7a6a, 1).fillEllipse(ox + 12, 13, 12, 12).fillCircle(ox + 12, 6, 5);
-      g.fillTriangle(ox + 8, 3, ox + 9, -1 + 1, ox + 11, 2).fillTriangle(ox + 16, 3, ox + 15, 0, ox + 13, 2);
-      g.lineStyle(2, 0x8a7a6a, 1).beginPath().moveTo(ox + 17, 17).lineTo(ox + 21, 12).strokePath();
+      ctx.fillRect(ox + 4, 4, 4, 5); ctx.fillRect(ox + 4, 1, 4, 3);
+      ctx.fillRect(ox + 4, 0, 1, 1); ctx.fillRect(ox + 7, 0, 1, 1);
+      ctx.fillStyle = dark; ctx.fillRect(ox + 8, 6, 2, 2);
+      ctx.fillStyle = ink; ctx.fillRect(ox + 5, 2, 1, 1); ctx.fillRect(ox + 6, 2, 1, 1);
     } else {
-      g.fillStyle(0x8a7a6a, 1).fillEllipse(ox + 11, 12, 16, 8).fillCircle(ox + 19, 9, 4.5);
-      g.fillTriangle(ox + 16, 6, ox + 17, 2, ox + 19, 5).fillTriangle(ox + 21, 5, ox + 22, 2, ox + 23, 6);
-      g.lineStyle(2, 0x8a7a6a, 1).beginPath().moveTo(ox + 4, 11).lineTo(ox + 1, 6).strokePath();
-      g.lineStyle(2, 0x6e6052, 1).beginPath().moveTo(ox + 7 - legs, 14).lineTo(ox + 7 + legs, 19).moveTo(ox + 15 + legs, 14).lineTo(ox + 15 - legs, 19).strokePath();
+      ctx.fillRect(ox + 2, 4, 7, 3); ctx.fillRect(ox + 7, 2, 3, 3);
+      ctx.fillRect(ox + 7, 1, 1, 1); ctx.fillRect(ox + 9, 1, 1, 1);
+      ctx.fillRect(ox + 1, 3, 1, 2);
+      ctx.fillStyle = dark;
+      ctx.fillRect(ox + 3 + leg, 7, 1, 2); ctx.fillRect(ox + 7 - leg, 7, 1, 2);
+      ctx.fillStyle = ink; ctx.fillRect(ox + 9, 3, 1, 1);
     }
-    g.fillStyle(INK, 1).fillCircle(ox + (sit ? 10.5 : 20), sit ? 6 : 8.5, 0.8);
-    if (sit) g.fillCircle(ox + 13.5, 6, 0.8);
   };
-  body(0, 2, false);
-  body(24, -2, false);
-  body(48, 0, true);
-  g.generateTexture("cat", 72 * 2, 22 * 2);
-  g.destroy();
-  const t = scene.textures.get("cat");
-  t.add("cat-a", 0, 0, 0, 48, 44);
-  t.add("cat-b", 0, 48, 0, 48, 44);
-  t.add("cat-sit", 0, 96, 0, 48, 44);
+  draw(0, 1, false); draw(12, -1, false); draw(24, 0, true);
+  const t = scene.textures.addCanvas("cat", c)!;
+  t.setFilter(Phaser.Textures.FilterMode.NEAREST);
+  t.add("cat-a", 0, 0, 0, 12, 10);
+  t.add("cat-b", 0, 12, 0, 12, 10);
+  t.add("cat-sit", 0, 24, 0, 12, 10);
 }
 
 function birdArt(scene: Phaser.Scene) {
   if (scene.textures.exists("bird")) return;
-  const g = scene.make.graphics({ x: 0, y: 0 }, false);
-  g.scaleX = g.scaleY = 2;
-  g.lineStyle(2, INK, 0.8).beginPath().moveTo(1, 6).lineTo(7, 9).lineTo(13, 6).strokePath();
-  g.lineStyle(2, INK, 0.8).beginPath().moveTo(15, 10).lineTo(21, 8).lineTo(27, 10).strokePath();
-  g.fillStyle(PALETTE.white, 0).fillRect(0, 0, 1, 1);
-  g.generateTexture("bird", 28 * 2, 14 * 2);
-  g.destroy();
-  const t = scene.textures.get("bird");
-  t.add("bird-a", 0, 0, 0, 28, 28);
-  t.add("bird-b", 0, 28, 0, 28, 28);
+  const c = document.createElement("canvas");
+  c.width = 16; c.height = 6;
+  const ctx = c.getContext("2d")!;
+  ctx.fillStyle = `#${INK.toString(16).padStart(6, "0")}`;
+  // Wing up
+  ctx.fillRect(1, 1, 2, 1); ctx.fillRect(3, 2, 2, 1); ctx.fillRect(5, 1, 2, 1);
+  // Wing down
+  ctx.fillRect(9, 3, 2, 1); ctx.fillRect(11, 2, 2, 1); ctx.fillRect(13, 3, 2, 1);
+  const t = scene.textures.addCanvas("bird", c)!;
+  t.setFilter(Phaser.Textures.FilterMode.NEAREST);
+  t.add("bird-a", 0, 0, 0, 8, 6);
+  t.add("bird-b", 0, 8, 0, 8, 6);
 }

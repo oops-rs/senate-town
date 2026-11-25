@@ -1,6 +1,6 @@
 :root { color-scheme: light dark; --card: #fffdf8; --ink: #2b2420; --soft: #75685a; --edge: #d9c7a2; }
 :root[data-theme="dark"] { --card: #2a2622; --ink: #f1e9dc; --soft: #b9ae9e; --edge: #5a4e40; }
-html, body { margin: 0; height: 100%; overflow: hidden; background: #7fb069; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: #6ba652; }
 #town { position: fixed; inset: 0; }
 #town canvas { display: block; image-rendering: pixelated; }
 #card, #toast, #status {

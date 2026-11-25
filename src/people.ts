@@ -1,9 +1,7 @@
-// A person in the town: a sprite from a walk sheet that walks along a path
-// with its feet on the ground (the frame follows the distance walked, so
-// feet never slide), bobs, faces the way it goes, eases in and out of a
-// stop, and is alive while standing (breathing, looking round, a stretch
-// now and then). Under Reduce Motion it fades from place to place instead.
-// One update for everyone from the scene; nothing per frame off screen.
+// A person in the village: a crisp 16-bit pixel-art sprite from a 4-dir walk
+// sheet that walks along streets and paths (frame follows distance walked,
+// no sliding feet), eases in and out, and idles alive. Under Reduce Motion it
+// fades from place to place instead.
 import Phaser from "phaser";
 import { SHEET_UNIT, WALK_FRAMES, walkSheet, where, type FigureOpts } from "./art.ts";
 import type { Look } from "./gen.ts";
@@ -11,11 +9,11 @@ import type { Pt } from "./nav.ts";
 
 export type Gait = "walk" | "stroll" | "elder" | "run" | "hurry";
 const GAIT: Record<Gait, { speed: number; stride: number }> = {
-  stroll: { speed: 34, stride: 5 },
-  walk: { speed: 46, stride: 6 },
-  hurry: { speed: 80, stride: 7.5 },
-  run: { speed: 92, stride: 8 },
-  elder: { speed: 20, stride: 3.6 },
+  stroll: { speed: 36, stride: 5 },
+  walk: { speed: 54, stride: 6 },
+  hurry: { speed: 92, stride: 7.5 },
+  run: { speed: 100, stride: 8 },
+  elder: { speed: 22, stride: 3.8 },
 };
 
 export type Activity = "idle" | "walk" | "sit" | "chat" | "work";
@@ -27,7 +25,6 @@ export class Person {
   readonly shirt: number;
   activity: Activity = "idle";
   gait: Gait;
-  /** Whoever owns it now (a routine, a job); free people get routines. */
   owner?: string;
   private path: Pt[] = [];
   private v = 0;
@@ -46,12 +43,14 @@ export class Person {
     this.shirt = shirt;
     this.gait = o.gait ?? "walk";
     this.reduce = o.reduceMotion ?? false;
-    this.scale = SHEET_UNIT * (o.child ? 0.74 : 1);
-    this.sprite = scene.add.image(at.x, at.y, where(this.sheet)[0], `${this.sheet}|idle-still`).setOrigin(0.5, 54 / 58).setScale(this.scale).setDepth(at.y);
+    this.scale = SHEET_UNIT * (o.child ? 0.78 : 1);
+    this.sprite = scene.add.image(at.x, at.y, where(this.sheet)[0], `${this.sheet}|idle-still`)
+      .setOrigin(0.5, 20 / 22)
+      .setScale(this.scale)
+      .setDepth(at.y);
     this.seed = (at.x * 7 + at.y * 13) % 1000;
   }
 
-  /** Show one of the sheet's frames (they live on an atlas page as `<sheet>|<frame>`). */
   private show(frame: string) {
     this.sprite.setFrame(`${this.sheet}|${frame}`);
   }
@@ -60,7 +59,6 @@ export class Person {
   get y() { return this.sprite.y; }
   get moving() { return this.activity === "walk"; }
 
-  /** Walk along these points (the first may be where it stands); `done` on arrival. */
   walk(points: Pt[], done?: () => void, gait?: Gait) {
     if (gait) this.gait = gait;
     this.path = points.slice();
@@ -69,17 +67,15 @@ export class Person {
     if (this.reduce) this.fadeTo(points[points.length - 1]!);
   }
 
-  /** Under Reduce Motion: no walk, a fade out here and in there. */
   private fadeTo(p: Pt) {
     const s = this.sprite;
     s.scene.tweens.chain({ tweens: [
-      { targets: s, alpha: 0, duration: 250 },
-      { targets: s, alpha: 1, duration: 250, onStart: () => { s.setPosition(p.x, p.y).setDepth(p.y); } },
+      { targets: s, alpha: 0, duration: 220 },
+      { targets: s, alpha: 1, duration: 220, onStart: () => { s.setPosition(p.x, p.y).setDepth(p.y); } },
     ], onComplete: () => this.stop() } as unknown as Phaser.Types.Tweens.TweenChainBuilderConfig);
     this.path = [];
   }
 
-  /** Stand still (and say so to whoever waits). */
   stop(activity: Activity = "idle") {
     this.path = [];
     this.v = 0;
@@ -90,7 +86,6 @@ export class Person {
     done?.();
   }
 
-  /** Turn to face a point (a neighbour to chat with). */
   face(p: Pt) {
     const dx = p.x - this.x, dy = p.y - this.y;
     if (Math.abs(dx) > Math.abs(dy)) { this.dir = "side"; this.sprite.setFlipX(dx < 0); this.show("side"); }
@@ -103,13 +98,11 @@ export class Person {
     this.stop("sit");
   }
 
-  /** A sideways nudge (two people passing). */
   nudge(dx: number, dy: number) {
     this.sprite.x += dx;
     this.sprite.y += dy;
   }
 
-  /** Paused for a moment (a capsule crossing): no forward step this frame. */
   hold = false;
 
   update(dt: number, now: number, onScreen: boolean) {
@@ -120,11 +113,10 @@ export class Person {
       const target = this.path[0]!;
       const dx = target.x - s.x, dy = target.y - s.y, d = Math.hypot(dx, dy);
       const remaining = d + this.restOfPath();
-      // Ease in from a stop, ease out into one.
-      const want = this.hold ? 0 : Math.min(speed, Math.max(10, remaining * 2.2));
-      this.v += (want - this.v) * Math.min(1, dt * 5);
+      const want = this.hold ? 0 : Math.min(speed, Math.max(12, remaining * 2.4));
+      this.v += (want - this.v) * Math.min(1, dt * 6);
       const step = Math.min(d, this.v * dt);
-      if (d < 0.5) {
+      if (d < 1) {
         this.path.shift();
         if (!this.path.length) { this.stop(); return; }
       } else {
@@ -142,9 +134,8 @@ export class Person {
       return;
     }
     if (!onScreen || this.activity === "sit") return;
-    // Alive while standing: breathe; now and then look round or stretch.
     if (now >= this.idleAt) {
-      const r = ((Math.sin(now * 0.0013 + this.seed) + 1) / 2);
+      const r = (Math.sin(now * 0.0013 + this.seed) + 1) / 2;
       if (this.dir !== "down") { this.idleAt = now + 4000; return; }
       if (this.idleFrame !== "idle-still") { this.idleFrame = "idle-still"; this.idleAt = now + 900 + r * 900; }
       else {
