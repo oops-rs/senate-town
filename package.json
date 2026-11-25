@@ -15,8 +15,8 @@
     "serve": "python3 -m http.server -d dist 8765"
   },
   "dependencies": {
-    "@senate/observe": "file:../packages/senate-observe",
-    "@senate/scene-host": "file:../packages/senate-scene-host",
+    "@senate/observe": "file:../senate/packages/senate-observe",
+    "@senate/scene-host": "file:../senate/packages/senate-scene-host",
     "phaser": "4.2.1"
   },
   "devDependencies": {

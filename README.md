@@ -173,3 +173,12 @@ change (types, scenes, tilemaps, tweens, input, blend modes, generated
 textures all carried over); the bundle grew by 176 KB minified (40 KB gzip);
 the esbuild defines for the Canvas renderer and plugins are gone (4 reads
 only `WEBGL_RENDERER`/`WEBGL_DEBUG`).
+
+## Where this lives
+
+Town is its own repository. It talks to Senate only through the public
+Observe API and the scene host contract, and depends on Senate's two
+client packages, `@senate/observe` and `@senate/scene-host`. Until those
+are published to npm, `package.json` points at them in a Senate checkout
+beside this one (`../senate/packages/…`): clone Senate next to this
+repository before `npm install`.
