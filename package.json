@@ -1,7 +1,7 @@
 {
   "name": "senate-town",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Town: a Senate's live activity as a little town of workshops, tubes and townspeople — a Phaser 4 page that runs in a browser and in the Senate app.",
   "license": "MIT",
   "type": "module",
