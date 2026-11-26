@@ -58,6 +58,11 @@ export class Person {
   get x() { return this.sprite.x; }
   get y() { return this.sprite.y; }
   get moving() { return this.activity === "walk"; }
+  get remaining() {
+    if (!this.path.length) return 0;
+    const t = this.path[0]!;
+    return Math.hypot(t.x - this.sprite.x, t.y - this.sprite.y) + this.restOfPath();
+  }
 
   walk(points: Pt[], done?: () => void, gait?: Gait) {
     if (gait) this.gait = gait;
@@ -101,6 +106,7 @@ export class Person {
   nudge(dx: number, dy: number) {
     this.sprite.x += dx;
     this.sprite.y += dy;
+    this.sprite.setDepth(this.sprite.y);
   }
 
   hold = false;

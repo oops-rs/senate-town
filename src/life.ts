@@ -176,13 +176,28 @@ export class Life {
       }
       if (c.plan !== "away") p.update(dt, now, on(p));
     }
-    for (let i = 0; i < this.civilians.length; i++) {
-      const a = this.civilians[i]!.p;
-      if (!a.moving) continue;
-      for (let j = i + 1; j < this.civilians.length; j++) {
-        const b = this.civilians[j]!.p;
-        const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy);
-        if (d > 0 && d < 14) { const k = ((14 - d) / d) * 0.5; a.nudge(-dy * k * 0.5, dx * k * 0.5); b.nudge(dy * k * 0.5, -dx * k * 0.5); }
+    if (!this.reduce) {
+      const moving = this.civilians.filter((c) => c.plan !== "away" && !c.p.owner && c.p.moving && !c.p.hold && c.p.remaining > 18);
+      const maxPush = 10 * dt;
+      for (let i = 0; i < moving.length; i++) {
+        const a = moving[i]!.p;
+        let nx = 0, ny = 0;
+        for (let j = 0; j < moving.length; j++) {
+          if (i === j) continue;
+          const b = moving[j]!.p;
+          const dx = a.x - b.x, dy = a.y - b.y, d = Math.hypot(dx, dy);
+          if (d > 0 && d < 14) {
+            const w = ((14 - d) / 14) * maxPush;
+            nx += (dx / d) * w;
+            ny += (dy / d) * w;
+          }
+        }
+        const m = Math.hypot(nx, ny);
+        if (m > 0) {
+          const s = Math.min(m, maxPush) / m;
+          const px = nx * s, py = ny * s;
+          if (this.grid.walkable({ x: a.x + px, y: a.y + py })) a.nudge(px, py);
+        }
       }
     }
     if (!this.reduce) { this.updateCat(dt, now); this.updateBirds(dt, now, view); }
